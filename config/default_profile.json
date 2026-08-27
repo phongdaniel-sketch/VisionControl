@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "mouse_hand": "Right",
+  "keyboard_hand": "Left",
+  "swap_hands": true,
+  "left_hand": {
+    "point": {"type": "press", "keys": ["w"]},
+    "peace": {"type": "press", "keys": ["a"]},
+    "three_fingers": {"type": "press", "keys": ["d"]},
+    "four_fingers": {"type": "press", "keys": ["s"]},
+    "open_palm": {"type": "press", "keys": ["space"]},
+    "fist": {"type": "hold", "keys": ["shift"]}
+  },
+  "thresholds": {
+    "gesture_confidence": 0.7,
+    "gesture_on_frames": 3,
+    "gesture_off_frames": 4,
+    "pinch_close_ratio": 0.35,
+    "pinch_open_ratio": 0.5
+  }
+}
