@@ -18,14 +18,29 @@ class Overlay:
         progress_text = f" {int(arming_progress * 100)}%" if arming_progress > 0 else ""
         self.cv2.putText(frame, f"keyboard_mode={keyboard_state}{progress_text}", (12, 108),
                          self.cv2.FONT_HERSHEY_SIMPLEX, .55, keyboard_color, 2)
-        height, width = frame.shape[:2]
-        for hand in hands:
-            for x, y, _ in hand.landmarks:
-                self.cv2.circle(frame, (int(x * width), int(y * height)), 3, (255, 120, 0), -1)
-            wrist = hand.landmarks[0]
-            self.cv2.putText(frame, f"{hand.label} {hand.confidence:.2f}",
-                             (int(wrist[0] * width), int(wrist[1] * height)),
-                             self.cv2.FONT_HERSHEY_SIMPLEX, .5, (255, 255, 0), 2)
+        self.draw_landmarks(frame, hands)
         if error:
             self.cv2.putText(frame, error[:100], (12, 134), self.cv2.FONT_HERSHEY_SIMPLEX, .5, (0, 0, 255), 2)
+        return frame
+
+    def draw_landmarks(self, frame, hands=()):
+        height, width = frame.shape[:2]
+        connections = (
+            (0, 1), (1, 2), (2, 3), (3, 4),
+            (0, 5), (5, 6), (6, 7), (7, 8),
+            (5, 9), (9, 10), (10, 11), (11, 12),
+            (9, 13), (13, 14), (14, 15), (15, 16),
+            (13, 17), (17, 18), (18, 19), (19, 20), (0, 17),
+        )
+        for hand in hands:
+            points = [(int(x * width), int(y * height))
+                      for x, y, _ in hand.landmarks]
+            for start, end in connections:
+                self.cv2.line(frame, points[start], points[end],
+                              (255, 125, 45), 2, self.cv2.LINE_AA)
+            for point in points:
+                self.cv2.circle(frame, point, 4, (255, 255, 255), -1,
+                                self.cv2.LINE_AA)
+                self.cv2.circle(frame, point, 6, (255, 125, 45), 1,
+                                self.cv2.LINE_AA)
         return frame

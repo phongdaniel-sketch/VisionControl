@@ -37,17 +37,17 @@ Pylance analysis.
 
 ## Run and test
 
-Open Settings:
+Run the desktop Controller safely:
+
+```bash
+PYTHONPATH=src .venv311/bin/python -m vision_control.launcher \
+  --camera-index 1 --start-paused
+```
+
+Open Settings directly for diagnostics:
 
 ```bash
 PYTHONPATH=src .venv311/bin/python -m vision_control.settings_ui
-```
-
-Run the controller safely:
-
-```bash
-PYTHONPATH=src .venv311/bin/python -m vision_control.app \
-  --camera-index 1 --start-paused
 ```
 
 Run deterministic verification:
@@ -56,7 +56,7 @@ Run deterministic verification:
 PYTHONPATH=src .venv311/bin/python -m unittest discover -s tests -v
 ```
 
-Current result: 31 tests pass.
+Current result: 33 tests pass.
 
 ## Implemented behavior
 
@@ -71,6 +71,11 @@ Current result: 31 tests pass.
   progress and a release latch.
 - Settings UI, application icons, splash/loading screens, offline hand model,
   and source CLI.
+- Controller-first dark desktop UI with embedded camera/landmarks, actual
+  gesture guide, prominent Pause/Resume, explicit ARMED/DISARMED status, and
+  Voice shown disabled for future development.
+- Settings opens only from the Controller's Settings button in normal use;
+  opening it pauses and releases input, and saved changes restart paused.
 
 ## Runtime controls
 
@@ -100,35 +105,46 @@ pyinstaller --noconfirm --clean VisionControl.spec
 open dist/VisionControl.app
 ```
 
-The current local Apple Silicon artifacts are ignored by Git:
+The current optimized local Apple Silicon artifacts are ignored by Git:
 
-- `dist/VisionControl.app` (about 820 MB)
-- `dist/VisionControl-0.1.0-macOS-arm64.zip` (about 220 MB)
-- ZIP SHA-256: `f03badef5d023cce554451c05fa1392e397946d48cf1f74a451cfeaba8fdc620`
+- `dist/VisionControl.app` (about 510 MB)
+- `dist/VisionControl-0.1.0-macOS-arm64.zip` (about 144 MB)
+- `dist/VisionControl-0.1.0-macOS-arm64.dmg` (about 160 MB)
+- ZIP SHA-256: `e3f70be8da8dc59b64b9612789ef9188cc6fc1513b88190e1279efb7fcfd30a4`
+- DMG SHA-256: `27b3e41c85823dd11541947ab41f8bfc903e2f83f1ba9c2fd1cee794a58afb09`
 
-The `.app` opens Settings and the bundled controller has successfully started
-camera index `1`. Its PyInstaller signature is ad-hoc for local testing. DMG
-creation was not completed because `hdiutil` returned `Operation not permitted`
-in the current environment.
+The `.app` opens Controller directly and the embedded-camera UI successfully ran
+camera index `1` paused for 20 seconds while detecting one and two hands.
+MediaPipe, the offline model, and TFLite CPU delegate initialized successfully.
+The ZIP passed `unzip -t`, and the DMG passed
+`hdiutil verify` plus a read-only mount/signature/model check. PyInstaller's
+signature remains ad-hoc for local testing.
+
+`scripts/build_macos_release.sh` stages the app on the system volume before DMG
+creation because `hdiutil -srcfolder` rejects the external repository volume.
+It supports Developer ID signing and notarization via Keychain references. The
+current Keychain has only an Apple Development identity and no `notarytool`
+credentials, so public signing/notarization cannot yet be executed.
 
 ## Known limitations and next work
 
-1. User acceptance-test `VisionControl.app` with Camera and Accessibility granted
-   specifically to VisionControl.
-2. Reduce the 820 MB prototype bundle; MediaPipe collection currently includes
-   optional modules such as Matplotlib and SciPy.
-3. Add Apple Developer ID signing, notarization, and a distributable DMG when
-   credentials are available.
+1. Complete `docs/macos-uat.md` with physical gestures and Accessibility granted
+   specifically to VisionControl; automated packaged smoke checks already pass.
+2. Add the Developer ID Application identity and notary Keychain profile, then
+   run `scripts/build_macos_release.sh --notarize`.
+3. Consider narrower MediaPipe collection in a later optimization; Matplotlib is
+   currently required by MediaPipe 0.10.21 package initialization.
 4. Build on Windows 11, verify camera/input/DPI/multiple monitors, then create and
    Authenticode-sign the `.exe` installer.
 
 ## Key files
 
 - Runtime entry: `src/vision_control/app.py`
+- Shared frame runtime: `src/vision_control/runtime.py`
+- Desktop Controller: `src/vision_control/controller_ui.py`
 - Desktop launcher: `src/vision_control/launcher.py`
 - Settings UI: `src/vision_control/settings_ui.py`
 - Frozen/source paths: `src/vision_control/paths.py`
 - Profile defaults: `config/default_profile.json`
 - Packaging: `VisionControl.spec`
 - Current status: `docs/development-status.md`
-

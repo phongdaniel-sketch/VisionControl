@@ -64,18 +64,29 @@ view does not render a logo overlay so the hand-tracking area stays unobstructed
 Desktop icon assets are generated from that source at `assets/VisionControl.icns`
 for macOS and `assets/VisionControl.ico` for Windows.
 
-## Settings
+## Desktop controller and Settings
 
-Open the cross-platform settings window with:
+Open the desktop controller with the embedded local camera preview:
+
+```bash
+python -m vision_control.launcher --camera-index 1 --start-paused
+```
+
+The Controller shows tracking, gesture, monitor, mouse, and keyboard arming
+state. Press **Settings** to open the separate Settings window; opening Settings
+pauses control and releases held input. Voice remains visible but disabled until
+that feature is implemented.
+
+For diagnostics, Settings can still be opened directly with:
 
 ```bash
 python -m vision_control.settings_ui
 ```
 
 Settings lets you choose the camera index, mouse hand, mirrored-hand swapping,
-monitor mode, cursor smoothing/deadzone, and scroll sensitivity. Use **Save and
-Start VisionControl** to persist a validated local profile and launch the camera
-controller. Personal settings are stored under `data/` and are ignored by Git.
+monitor mode, cursor smoothing/deadzone, and scroll sensitivity. Use **Save** to
+persist a validated local profile; the Controller safely restarts tracking in a
+paused state. Personal settings are stored under `data/` and are ignored by Git.
 
 The left-hand gesture editor supports Disabled, Press, and Hold actions. Enter
 one key (`space`) or a comma-separated shortcut (`ctrl, c`). A press shortcut is
@@ -125,13 +136,23 @@ distribution still requires Apple Developer ID signing and notarization. The
 same launcher and `.ico` asset are ready for a Windows 11 PyInstaller build,
 which must be produced and verified on Windows.
 
-The local test artifact can be compressed for transfer while preserving macOS
-bundle metadata:
+Build and validate both local distribution artifacts with:
 
 ```bash
-ditto -c -k --sequesterRsrc --keepParent dist/VisionControl.app \
-  dist/VisionControl-0.1.0-macOS-arm64.zip
+scripts/build_macos_release.sh
 ```
+
+For a public release, install a **Developer ID Application** certificate, store
+notary credentials in the Keychain, and run:
+
+```bash
+export VISIONCONTROL_SIGN_IDENTITY="Developer ID Application: ..."
+export VISIONCONTROL_NOTARY_PROFILE="visioncontrol-notary"
+scripts/build_macos_release.sh --notarize
+```
+
+The script rejects non-Developer-ID release identities. Credentials and private
+keys are never stored in the repository.
 
 ## Safety
 

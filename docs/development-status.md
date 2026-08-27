@@ -19,16 +19,27 @@
 - Native macOS and Windows icons are generated from the supplied application logo.
 - A cross-platform Settings window saves validated local camera, hand, monitor,
   cursor, and scrolling preferences before launching VisionControl.
+- A dark PySide6 Controller embeds the local camera preview, landmark skeleton,
+  actual gesture guide, safety/status cards, Pause/Resume, disabled future Voice,
+  and the only normal entry point to Settings.
+- Opening Settings pauses and releases input; saving rebuilds the runtime with
+  the new profile and camera settings while remaining paused.
 - Settings configures left-hand gestures as Disabled, Press, or Hold actions,
   including validated multi-key chords; fist remains reserved for arming.
 - Active monitor mode supports configurable point-pose edge dwell, spatial
   previous/next display switching, progress feedback, and a release latch.
-- A PyInstaller macOS Apple Silicon app bundle opens Settings and starts the
-  bundled camera controller without a separate Python installation.
+- A PyInstaller macOS Apple Silicon app bundle opens the desktop Controller
+  directly without a separate Python installation.
+- The optimized macOS bundle excludes unused JAX/JAXlib and SciPy stacks,
+  reducing the app from about 820 MB to 510 MB while retaining MediaPipe's
+  required Matplotlib import.
+- Reproducible release tooling creates and validates metadata-preserving ZIP and
+  DMG artifacts, with optional Developer ID signing and notarization.
 - Frozen builds use bundled read-only resources and OS-specific writable
   application-data directories; the hand model is bundled for offline startup.
 - Deterministic unit tests cover profile validation, role swapping, debounce,
-  held-key release, calibration mapping, and special key resolution.
+  held-key release, calibration mapping, Settings gating/disabled Voice, and
+  special key resolution.
 
 ## Current test setup
 
@@ -39,16 +50,18 @@
 
 ## Next priorities
 
-1. User acceptance-test the macOS `.app`, including Camera and Accessibility.
-2. Reduce prototype bundle size and add Developer ID signing/notarization.
+1. Complete the physical-hand acceptance checklist in `docs/macos-uat.md`,
+   especially Accessibility-controlled input and emergency release paths.
+2. Install a Developer ID Application certificate and configure a `notarytool`
+   Keychain profile, then run the implemented signing/notarization workflow.
 3. Build and verify permissions, camera, input, and DPI behavior on Windows 11.
 
 ## Run
 
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
+python3.11 -m venv .venv311
+source .venv311/bin/activate
 python -m pip install -r requirements.txt
 python -m pip install -e .
-python -m vision_control.app --camera-index 1
+python -m vision_control.launcher --camera-index 1 --start-paused
 ```

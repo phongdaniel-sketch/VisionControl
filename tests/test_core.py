@@ -321,5 +321,70 @@ class CoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot be configured"):
             apply_gesture_bindings(raw, {"fist": ("Press", "space")})
 
+    def test_runtime_pause_releases_all_control_state(self):
+        from vision_control.runtime import VisionRuntime
+
+        class Releasable:
+            def __init__(self): self.calls = 0
+            def release_all(self): self.calls += 1
+
+        class Arming:
+            def __init__(self): self.calls = 0
+            def disarm(self): self.calls += 1
+
+        runtime = VisionRuntime(start_paused=False)
+        runtime.mouse = Releasable()
+        runtime.keyboard = Releasable()
+        runtime.arming = Arming()
+        runtime.set_paused(True)
+        self.assertTrue(runtime.paused)
+        self.assertEqual(runtime.mouse.calls, 1)
+        self.assertEqual(runtime.keyboard.calls, 1)
+        self.assertEqual(runtime.arming.calls, 1)
+
+    def test_controller_opens_settings_only_from_button_and_disables_voice(self):
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+        from vision_control.controller_ui import ControllerWindow
+        import vision_control.settings_ui as settings_ui
+
+        class FakeRuntime:
+            def __init__(self, profile):
+                self.profile = profile
+                self.paused = False
+                self.pause_calls = 0
+                self.close_calls = 0
+
+            def set_paused(self, value):
+                self.paused = value
+                self.pause_calls += 1
+
+            def toggle_paused(self):
+                self.set_paused(not self.paused)
+                return self.paused
+
+            def close(self): self.close_calls += 1
+
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory:
+            app_settings = Path(directory) / "app_settings.json"
+            user_profile = Path(directory) / "user_profile.json"
+            with patch.object(settings_ui, "APP_SETTINGS", app_settings), \
+                 patch.object(settings_ui, "USER_PROFILE", user_profile):
+                runtime = FakeRuntime(self.profile)
+                window = ControllerWindow(runtime)
+                window.timer.stop()
+                self.assertIsNone(window.settings_window)
+                self.assertFalse(window.voice_button.isEnabled())
+                window.settings_button.click()
+                app.processEvents()
+                self.assertIsNotNone(window.settings_window)
+                self.assertFalse(window.settings_window.voice_button.isEnabled())
+                self.assertTrue(runtime.paused)
+                self.assertGreaterEqual(runtime.pause_calls, 1)
+                window.close()
+                app.processEvents()
+
 
 if __name__ == "__main__": unittest.main()

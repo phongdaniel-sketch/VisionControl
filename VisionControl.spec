@@ -1,7 +1,24 @@
+import os
+
 from PyInstaller.utils.hooks import collect_all
 
 
 mediapipe_datas, mediapipe_binaries, mediapipe_hiddenimports = collect_all("mediapipe")
+
+# MediaPipe ships optional research and accelerator integrations that are not
+# used by VisionControl's CPU hand landmarker. Excluding them avoids bundling
+# hundreds of megabytes of JAX and SciPy code. Matplotlib remains because
+# MediaPipe 0.10.21 imports it eagerly from the package initializer.
+unused_optional_packages = [
+    "Cython",
+    "IPython",
+    "jax",
+    "jaxlib",
+    "pandas",
+    "scipy",
+]
+
+codesign_identity = os.environ.get("VISIONCONTROL_SIGN_IDENTITY") or None
 
 analysis = Analysis(
     ["src/vision_control/launcher.py"],
@@ -17,7 +34,7 @@ analysis = Analysis(
     hiddenimports=mediapipe_hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=[],
+    excludes=unused_optional_packages,
     noarchive=False,
 )
 
@@ -36,8 +53,8 @@ executable = EXE(
     console=False,
     argv_emulation=False,
     target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
+    codesign_identity=codesign_identity,
+    entitlements_file="packaging/macos-entitlements.plist",
     icon="assets/VisionControl.icns",
 )
 
