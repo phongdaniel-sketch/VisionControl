@@ -42,6 +42,7 @@ class GestureController:
         for key in tuple(self.held): self.adapter.key_up(key)
         self.held.clear(); self.current = "none"; self.on_count = 0
 
+    def release_keys(self): self._release()
     def release_all(self): self._release(); self.adapter.release_all()
 
 

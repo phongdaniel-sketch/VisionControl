@@ -1,16 +1,18 @@
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from vision_control.controllers import GestureController, MouseController
-from vision_control.profile import load_profile
+from vision_control.profile import GestureBinding, load_profile
 from vision_control.types import HandObservation
 from vision_control.calibration import CalibrationSession, MouseCalibration
 from vision_control.input_adapter import PynputInputAdapter
 from vision_control.roles import assign_roles
 from vision_control.types import HandsFrame
 from vision_control.monitors import MonitorLayout, ScreenRegion
+from vision_control.arming import ArmingController, ArmingSettings
 
 
 class RecordingInput:
@@ -43,6 +45,8 @@ class CoreTests(unittest.TestCase):
         self.assertNotEqual(self.profile.mouse_hand, self.profile.keyboard_hand)
         self.assertTrue(self.profile.swap_hands)
         self.assertEqual(self.profile.monitor_mode, "active")
+        self.assertTrue(self.profile.arming.enabled)
+        self.assertNotIn("fist", self.profile.bindings)
         self.assertEqual(self.profile.bindings["point"].keys, ("w",))
 
     def test_keyboard_press_is_debounced(self):
@@ -52,7 +56,9 @@ class CoreTests(unittest.TestCase):
         self.assertEqual([e for e in adapter.events if e == ("press", "w")], [("press", "w")])
 
     def test_held_binding_releases_when_gesture_disappears(self):
-        adapter = RecordingInput(); controller = GestureController(adapter, self.profile)
+        profile = replace(self.profile, bindings={**self.profile.bindings,
+                                                  "fist": GestureBinding("hold", ("shift",))})
+        adapter = RecordingInput(); controller = GestureController(adapter, profile)
         fist = hand((False, False, False, False))
         for _ in range(3): controller.update(fist)
         controller.update(None)
@@ -60,7 +66,9 @@ class CoreTests(unittest.TestCase):
         self.assertIn(("key_up", "shift"), adapter.events)
 
     def test_held_binding_releases_when_switching_gesture(self):
-        adapter = RecordingInput(); controller = GestureController(adapter, self.profile)
+        profile = replace(self.profile, bindings={**self.profile.bindings,
+                                                  "fist": GestureBinding("hold", ("shift",))})
+        adapter = RecordingInput(); controller = GestureController(adapter, profile)
         fist = hand((False, False, False, False)); point = hand((True, False, False, False))
         for _ in range(3): controller.update(fist)
         for _ in range(3): controller.update(point)
@@ -149,6 +157,31 @@ class CoreTests(unittest.TestCase):
         controller.update(second)
         self.assertTrue(any(event[0] == "scroll" for event in adapter.events))
         self.assertEqual(controller.status, "scroll")
+
+    def test_fist_hold_toggles_arming_only_after_release(self):
+        controller = ArmingController(ArmingSettings())
+        self.assertFalse(controller.armed)
+        controller.update("fist", True, 0.0)
+        controller.update("fist", True, .5)
+        self.assertAlmostEqual(controller.progress, .5)
+        self.assertEqual(controller.update("fist", True, 1.01), "armed")
+        self.assertTrue(controller.armed)
+        self.assertIsNone(controller.update("fist", True, 2.0))
+        self.assertTrue(controller.armed)
+        for index in range(4):
+            controller.update("open_palm", True, 2.1 + index * .05)
+        controller.update("fist", True, 2.5)
+        self.assertEqual(controller.update("fist", True, 3.51), "disarmed")
+        self.assertFalse(controller.armed)
+
+    def test_armed_keyboard_auto_disarms_after_hand_loss(self):
+        controller = ArmingController(ArmingSettings(auto_disarm_seconds=2.0))
+        controller.update("fist", True, 0.0)
+        controller.update("fist", True, 1.01)
+        self.assertTrue(controller.armed)
+        controller.update("none", False, 2.0)
+        self.assertEqual(controller.update("none", False, 4.01), "auto_disarmed")
+        self.assertFalse(controller.armed)
 
 
 if __name__ == "__main__": unittest.main()

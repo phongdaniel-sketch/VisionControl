@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from .arming import ArmingSettings
 
 
 ALLOWED_ACTIONS = {"press", "hold"}
@@ -23,6 +24,7 @@ class Profile:
     swap_hands: bool
     monitor_mode: str
     fixed_monitor: int
+    arming: ArmingSettings
     bindings: dict[str, GestureBinding]
     thresholds: dict[str, float]
 
@@ -41,6 +43,17 @@ def load_profile(path: str | Path) -> Profile:
     fixed_monitor = int(raw.get("fixed_monitor", 0))
     if fixed_monitor < 0:
         raise ValueError("fixed_monitor must be zero or greater")
+    arming_raw = raw.get("arming", {})
+    arming = ArmingSettings(
+        enabled=bool(arming_raw.get("enabled", True)),
+        gesture=str(arming_raw.get("gesture", "fist")),
+        hold_seconds=float(arming_raw.get("hold_seconds", 1.0)),
+        release_frames=int(arming_raw.get("release_frames", 4)),
+        cooldown_seconds=float(arming_raw.get("cooldown_seconds", .5)),
+        auto_disarm_seconds=float(arming_raw.get("auto_disarm_on_hand_loss_seconds", 2.0)),
+    )
+    if arming.hold_seconds <= 0 or arming.release_frames < 1 or arming.cooldown_seconds < 0 or arming.auto_disarm_seconds < 0:
+        raise ValueError("Invalid arming settings")
     bindings = {}
     for gesture, binding in raw.get("left_hand", {}).items():
         action_type = binding.get("type")
@@ -52,5 +65,7 @@ def load_profile(path: str | Path) -> Profile:
     for key in ("gesture_confidence", "pinch_close_ratio", "pinch_open_ratio"):
         if not 0 < float(thresholds.get(key, 0.5)) <= 1:
             raise ValueError(f"Invalid threshold: {key}")
+    if arming.enabled and arming.gesture in bindings:
+        raise ValueError("The arming gesture must not also have a key binding")
     return Profile(raw["mouse_hand"], raw["keyboard_hand"], bool(raw.get("swap_hands", False)),
-                   monitor_mode, fixed_monitor, bindings, thresholds)
+                   monitor_mode, fixed_monitor, arming, bindings, thresholds)

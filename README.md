@@ -44,6 +44,21 @@ Set `monitor_mode` in `config/default_profile.json`:
 The overlay shows the current `monitor` and `mouse_action`. Two extended fingers
 activate scroll mode; a fist pauses mouse control and releases held buttons.
 
+## Left-hand keyboard arming
+
+Keyboard gestures start in `DISARMED` mode. Hold a left-hand fist steadily for
+one second to toggle `ARMED`; release the fist before toggling again. While armed,
+the configured left-hand gestures emit keys. Losing the left hand for two seconds,
+pausing, calibrating, or exiting automatically disarms and releases held keys.
+
+The overlay shows `ARMING`/`DISARMING` progress and the final keyboard mode. The
+fist is reserved for arming and cannot also be assigned to a key while arming is
+enabled. Timing and auto-disarm behavior are configurable under `arming` in the
+default profile.
+
+The application logo is stored at `docs/Vision Control logo.png` and rendered in
+the camera overlay.
+
 ## Safety
 
 Keep the emergency stop available. The application releases all held mouse buttons and keys on pause, camera failure, normal exit, and exceptions. Camera frames are processed locally and are not uploaded.

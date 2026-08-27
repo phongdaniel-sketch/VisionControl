@@ -12,6 +12,9 @@
 - Mouse calibration is integrated and persisted locally.
 - Two-finger vertical motion emits scroll events.
 - Cursor movement has configurable smoothing and a pixel deadzone.
+- Left-hand fist hold toggles keyboard ARMED/DISARMED state with progress,
+  release latch, cooldown, and automatic hand-loss disarm.
+- The supplied VisionControl logo is rendered as an RGBA overlay.
 - Deterministic unit tests cover profile validation, role swapping, debounce,
   held-key release, calibration mapping, and special key resolution.
 
@@ -24,10 +27,9 @@
 
 ## Next priorities
 
-1. Add a safe arming gesture for left-hand keyboard actions.
-2. Add camera/profile selection UI and Windows 11 verification.
-3. Add edge-dwell or gesture-based monitor switching for `active` mode.
-4. Package signed desktop builds for macOS and Windows 11.
+1. Add camera/profile selection UI and Windows 11 verification.
+2. Add edge-dwell or gesture-based monitor switching for `active` mode.
+3. Package signed desktop builds for macOS and Windows 11.
 
 ## Run
 

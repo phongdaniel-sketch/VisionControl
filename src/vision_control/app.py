@@ -1,6 +1,7 @@
 import argparse
 import time
 from pathlib import Path
+from .arming import ArmingController
 from .camera import Camera
 from .calibration import CalibrationSession, load_calibration, save_calibration
 from .controllers import GestureController, MouseController
@@ -10,6 +11,7 @@ from .tracker import MediaPipeTracker
 from .overlay import Overlay
 from .roles import assign_roles
 from .monitors import discover_monitors
+from .gestures import classify_static
 
 
 def run(camera_index=0, start_paused=False):
@@ -22,8 +24,9 @@ def run(camera_index=0, start_paused=False):
     calibration = load_calibration(calibration_path)
     mouse = MouseController(adapter, profile, layout, calibration)
     keyboard = GestureController(adapter, profile)
+    arming = ArmingController(profile.arming)
     camera, tracker = Camera(index=camera_index), MediaPipeTracker()
-    overlay = Overlay(cv2)
+    overlay = Overlay(cv2, root / "docs" / "Vision Control logo.png")
     calibration_session = CalibrationSession()
     paused = start_paused
     last_log = 0.0
@@ -36,14 +39,32 @@ def run(camera_index=0, start_paused=False):
             mouse_hand, keyboard_hand = assign_roles(result, profile.mouse_hand,
                                                       profile.keyboard_hand,
                                                       profile.swap_hands)
+            now = time.monotonic()
+            raw_gesture = "none"
+            if keyboard_hand is not None and keyboard_hand.confidence >= profile.thresholds.get("gesture_confidence", .7):
+                raw_gesture, _ = classify_static(keyboard_hand)
             if calibration_session.active:
-                mouse.release_all(); keyboard.release_all()
+                mouse.release_all(); keyboard.release_keys(); arming.disarm()
                 mouse.status = "calibrating"
                 gesture = f"calibrate:{calibration_session.stage}"
             elif not paused:
                 mouse.update(mouse_hand, (result.width, result.height))
-                gesture = keyboard.update(keyboard_hand)
+                arming_event = arming.update(raw_gesture, keyboard_hand is not None, now)
+                if arming_event in {"disarmed", "auto_disarmed"}:
+                    keyboard.release_keys()
+                if keyboard_hand is None:
+                    keyboard.update(None)
+                    gesture = "none"
+                elif profile.arming.enabled and raw_gesture == profile.arming.gesture:
+                    keyboard.release_keys()
+                    gesture = raw_gesture
+                elif arming.armed:
+                    gesture = keyboard.update(keyboard_hand)
+                else:
+                    keyboard.release_keys()
+                    gesture = raw_gesture
             else:
+                arming.disarm(); keyboard.release_keys(); mouse.release_all()
                 gesture = "paused"
             help_text = ""
             if calibration_session.active:
@@ -53,12 +74,13 @@ def run(camera_index=0, start_paused=False):
                          hands=result.hands, mouse_found=mouse_hand is not None,
                          keyboard_found=keyboard_hand is not None,
                          mouse_status=mouse.status, monitor_name=mouse.target_region.name,
+                         keyboard_state=arming.label, arming_progress=arming.progress,
                          error=help_text)
-            now = time.monotonic()
             if now - last_log >= 1.0:
                 labels = [(h.label, round(h.confidence, 2)) for h in result.hands]
                 print(f"[vision] camera={camera_index} swap_hands={profile.swap_hands} hands={labels} mouse_found={mouse_hand is not None} "
                       f"keyboard_found={keyboard_hand is not None} gesture={gesture} "
+                      f"keyboard_state={arming.label} arming_progress={arming.progress:.2f} "
                       f"mouse_status={mouse.status} monitor={mouse.target_region.name}", flush=True)
                 last_log = now
             cv2.imshow("VisionControl", frame)
@@ -66,7 +88,7 @@ def run(camera_index=0, start_paused=False):
             if key == 27: break
             if key in (ord("c"), ord("C")) and not calibration_session.active:
                 calibration_session.start()
-                mouse.release_all(); keyboard.release_all()
+                mouse.release_all(); keyboard.release_keys(); arming.disarm()
             elif key == ord(" ") and calibration_session.active and mouse_hand is not None:
                 point = mouse_hand.landmarks[8]
                 if calibration_session.capture(point[0], point[1]):
@@ -81,7 +103,7 @@ def run(camera_index=0, start_paused=False):
                 calibration_session.cancel()
             elif key in (ord("p"), ord("P")) and not calibration_session.active:
                 paused = not paused
-                if paused: mouse.release_all(); keyboard.release_all()
+                if paused: mouse.release_all(); keyboard.release_keys(); arming.disarm()
     except KeyboardInterrupt:
         pass
     finally:

@@ -5,13 +5,20 @@
   "swap_hands": true,
   "monitor_mode": "active",
   "fixed_monitor": 0,
+  "arming": {
+    "enabled": true,
+    "gesture": "fist",
+    "hold_seconds": 1.0,
+    "release_frames": 4,
+    "cooldown_seconds": 0.5,
+    "auto_disarm_on_hand_loss_seconds": 2.0
+  },
   "left_hand": {
     "point": {"type": "press", "keys": ["w"]},
     "peace": {"type": "press", "keys": ["a"]},
     "three_fingers": {"type": "press", "keys": ["d"]},
     "four_fingers": {"type": "press", "keys": ["s"]},
-    "open_palm": {"type": "press", "keys": ["space"]},
-    "fist": {"type": "hold", "keys": ["shift"]}
+    "open_palm": {"type": "press", "keys": ["space"]}
   },
   "thresholds": {
     "gesture_confidence": 0.7,
