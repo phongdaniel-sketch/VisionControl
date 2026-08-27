@@ -2,6 +2,7 @@ class InputAdapter:
     """Side-effect boundary. Production implementation can be replaced per OS."""
 
     def move(self, x: float, y: float) -> None: raise NotImplementedError
+    def position(self) -> tuple[float, float]: raise NotImplementedError
     def button_down(self, button: str) -> None: raise NotImplementedError
     def button_up(self, button: str) -> None: raise NotImplementedError
     def scroll(self, amount: int) -> None: raise NotImplementedError
@@ -29,6 +30,7 @@ class PynputInputAdapter(InputAdapter):
         self.held_buttons: set[str] = set()
 
     def move(self, x, y): self.mouse.position = (int(x), int(y))
+    def position(self): return self.mouse.position
     def button_down(self, button): self.mouse.press(self.buttons[button]); self.held_buttons.add(button)
     def button_up(self, button): self.mouse.release(self.buttons[button]); self.held_buttons.discard(button)
     def scroll(self, amount): self.mouse.scroll(0, int(amount))

@@ -6,15 +6,17 @@ from pathlib import Path
 from vision_control.controllers import GestureController, MouseController
 from vision_control.profile import load_profile
 from vision_control.types import HandObservation
-from vision_control.calibration import MouseCalibration
+from vision_control.calibration import CalibrationSession, MouseCalibration
 from vision_control.input_adapter import PynputInputAdapter
 from vision_control.roles import assign_roles
 from vision_control.types import HandsFrame
+from vision_control.monitors import MonitorLayout, ScreenRegion
 
 
 class RecordingInput:
-    def __init__(self): self.events = []
-    def move(self, x, y): self.events.append(("move", x, y))
+    def __init__(self): self.events = []; self._position = (0.0, 0.0)
+    def move(self, x, y): self._position = (x, y); self.events.append(("move", x, y))
+    def position(self): return self._position
     def button_down(self, b): self.events.append(("down", b))
     def button_up(self, b): self.events.append(("up", b))
     def scroll(self, n): self.events.append(("scroll", n))
@@ -40,6 +42,7 @@ class CoreTests(unittest.TestCase):
     def test_profile_loads_and_has_two_roles(self):
         self.assertNotEqual(self.profile.mouse_hand, self.profile.keyboard_hand)
         self.assertTrue(self.profile.swap_hands)
+        self.assertEqual(self.profile.monitor_mode, "active")
         self.assertEqual(self.profile.bindings["point"].keys, ("w",))
 
     def test_keyboard_press_is_debounced(self):
@@ -81,6 +84,35 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(calibration.map(.1, .1, (1000, 500)), (0.0, 0.0))
         self.assertEqual(calibration.map(.9, .9, (1000, 500)), (999.0, 499.0))
 
+    def test_calibration_maps_to_monitor_with_negative_origin(self):
+        calibration = MouseCalibration(.1, .9, .1, .9)
+        region = ScreenRegion(-1920, 0, 1920, 1080, "left")
+        self.assertEqual(calibration.map_to_region(.1, .1, region), (-1920.0, 0.0))
+        self.assertEqual(calibration.map_to_region(.9, .9, region), (-1.0, 1079.0))
+
+    def test_calibration_session_captures_four_bounds(self):
+        session = CalibrationSession(); session.start()
+        self.assertEqual(session.stage, "left")
+        self.assertFalse(session.capture(.15, .5))
+        self.assertFalse(session.capture(.85, .5))
+        self.assertFalse(session.capture(.5, .2))
+        self.assertTrue(session.capture(.5, .8))
+        self.assertEqual(session.result(), MouseCalibration(.15, .85, .2, .8))
+
+    def test_calibration_session_rejects_reversed_bounds(self):
+        session = CalibrationSession(); session.start()
+        session.capture(.9, .5); session.capture(.1, .5)
+        session.capture(.5, .8); session.capture(.5, .2)
+        with self.assertRaises(ValueError): session.result()
+
+    def test_monitor_layout_supports_active_fixed_and_all(self):
+        regions = [ScreenRegion(-1920, 0, 1920, 1080, "left"),
+                   ScreenRegion(0, 0, 2560, 1440, "main")]
+        self.assertEqual(MonitorLayout(regions, "active").target((-100, 500)).name, "left")
+        self.assertEqual(MonitorLayout(regions, "fixed", 1).target((-100, 500)).name, "main")
+        union = MonitorLayout(regions, "all").target((0, 0))
+        self.assertEqual((union.x, union.y, union.width, union.height), (-1920, 0, 4480, 1440))
+
     def test_special_key_names_are_resolved(self):
         adapter = object.__new__(PynputInputAdapter)
         sentinel = object()
@@ -95,6 +127,28 @@ class CoreTests(unittest.TestCase):
         mouse, keyboard = assign_roles(frame, "Right", "Left", swap_hands=True)
         self.assertEqual(mouse.label, "Left")
         self.assertEqual(keyboard.label, "Right")
+
+    def test_mouse_uses_active_monitor_and_calibration(self):
+        adapter = RecordingInput(); adapter._position = (-100, 500)
+        layout = MonitorLayout([ScreenRegion(-1920, 0, 1920, 1080, "left"),
+                                ScreenRegion(0, 0, 2560, 1440, "main")], "active")
+        controller = MouseController(adapter, self.profile, layout, MouseCalibration(0, 1, 0, 1))
+        controller.update(hand((True, False, False, False), "Right"))
+        move = next(event for event in adapter.events if event[0] == "move")
+        self.assertEqual(controller.target_region.name, "left")
+        self.assertLess(move[1], 0)
+
+    def test_two_finger_vertical_motion_scrolls(self):
+        adapter = RecordingInput()
+        controller = MouseController(adapter, self.profile)
+        first = hand((True, True, False, False), "Right")
+        points = list(first.landmarks)
+        points[8] = (.5, .2, 0); points[12] = (.5, .2, 0)
+        second = HandObservation("Right", tuple(points))
+        controller.update(first)
+        controller.update(second)
+        self.assertTrue(any(event[0] == "scroll" for event in adapter.events))
+        self.assertEqual(controller.status, "scroll")
 
 
 if __name__ == "__main__": unittest.main()

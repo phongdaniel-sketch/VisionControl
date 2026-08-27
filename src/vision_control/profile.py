@@ -21,6 +21,8 @@ class Profile:
     mouse_hand: str
     keyboard_hand: str
     swap_hands: bool
+    monitor_mode: str
+    fixed_monitor: int
     bindings: dict[str, GestureBinding]
     thresholds: dict[str, float]
 
@@ -33,6 +35,12 @@ def load_profile(path: str | Path) -> Profile:
         raise ValueError("Hand roles must be Left or Right")
     if raw["mouse_hand"] == raw["keyboard_hand"]:
         raise ValueError("Mouse and keyboard hands must differ")
+    monitor_mode = raw.get("monitor_mode", "active")
+    if monitor_mode not in {"active", "fixed", "all"}:
+        raise ValueError("monitor_mode must be active, fixed, or all")
+    fixed_monitor = int(raw.get("fixed_monitor", 0))
+    if fixed_monitor < 0:
+        raise ValueError("fixed_monitor must be zero or greater")
     bindings = {}
     for gesture, binding in raw.get("left_hand", {}).items():
         action_type = binding.get("type")
@@ -44,4 +52,5 @@ def load_profile(path: str | Path) -> Profile:
     for key in ("gesture_confidence", "pinch_close_ratio", "pinch_open_ratio"):
         if not 0 < float(thresholds.get(key, 0.5)) <= 1:
             raise ValueError(f"Invalid threshold: {key}")
-    return Profile(raw["mouse_hand"], raw["keyboard_hand"], bool(raw.get("swap_hands", False)), bindings, thresholds)
+    return Profile(raw["mouse_hand"], raw["keyboard_hand"], bool(raw.get("swap_hands", False)),
+                   monitor_mode, fixed_monitor, bindings, thresholds)

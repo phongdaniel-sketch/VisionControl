@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
+from .monitors import ScreenRegion
 
 
 @dataclass
@@ -11,10 +12,55 @@ class MouseCalibration:
     bottom: float = 0.90
 
     def map(self, x: float, y: float, screen: tuple[int, int]) -> tuple[float, float]:
-        width, height = screen
+        return self.map_to_region(x, y, ScreenRegion(0, 0, screen[0], screen[1]))
+
+    def map_to_region(self, x: float, y: float, region: ScreenRegion) -> tuple[float, float]:
         nx = max(0.0, min(1.0, (x - self.left) / max(self.right - self.left, 0.01)))
         ny = max(0.0, min(1.0, (y - self.top) / max(self.bottom - self.top, 0.01)))
-        return nx * (width - 1), ny * (height - 1)
+        return region.x + nx * (region.width - 1), region.y + ny * (region.height - 1)
+
+
+class CalibrationSession:
+    stages = ("left", "right", "top", "bottom")
+
+    def __init__(self):
+        self.active = False
+        self.index = 0
+        self.values: dict[str, float] = {}
+
+    @property
+    def stage(self) -> str | None:
+        return self.stages[self.index] if self.active else None
+
+    def start(self) -> None:
+        self.active = True
+        self.index = 0
+        self.values.clear()
+
+    def cancel(self) -> None:
+        self.active = False
+        self.index = 0
+        self.values.clear()
+
+    def capture(self, x: float, y: float) -> bool:
+        if not self.active:
+            raise RuntimeError("Calibration has not started")
+        stage = self.stages[self.index]
+        self.values[stage] = x if stage in {"left", "right"} else y
+        self.index += 1
+        if self.index == len(self.stages):
+            self.active = False
+            return True
+        return False
+
+    def result(self) -> MouseCalibration:
+        if self.active or set(self.values) != set(self.stages):
+            raise RuntimeError("Calibration is incomplete")
+        calibration = MouseCalibration(**self.values)
+        if not (0 <= calibration.left < calibration.right <= 1 and
+                0 <= calibration.top < calibration.bottom <= 1):
+            raise ValueError("Captured calibration bounds are invalid")
+        return calibration
 
 
 def load_calibration(path: str | Path) -> MouseCalibration:

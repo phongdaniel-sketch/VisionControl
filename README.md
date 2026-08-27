@@ -26,6 +26,24 @@ The app defaults to `config/default_profile.json`. Set `swap_hands` there when a
 mirrored camera reverses physical left/right roles. Press `Esc` in the preview to
 stop. Press `p` to pause/resume.
 
+## Mouse calibration
+
+Press `C` to start calibration. Move the right index fingertip to each requested
+comfortable boundary (`left`, `right`, `top`, `bottom`) and press `Space` once per
+stage. Press `R` to cancel. The result is stored locally in
+`data/mouse_calibration.json` and is intentionally not committed.
+
+## Multiple monitors
+
+Set `monitor_mode` in `config/default_profile.json`:
+
+- `active`: map the hand to the monitor currently containing the cursor.
+- `fixed`: map to `fixed_monitor` by zero-based index.
+- `all`: map across the union of every display, including negative coordinates.
+
+The overlay shows the current `monitor` and `mouse_action`. Two extended fingers
+activate scroll mode; a fist pauses mouse control and releases held buttons.
+
 ## Safety
 
 Keep the emergency stop available. The application releases all held mouse buttons and keys on pause, camera failure, normal exit, and exceptions. Camera frames are processed locally and are not uploaded.

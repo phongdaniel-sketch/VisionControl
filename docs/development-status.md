@@ -8,6 +8,10 @@
 - Left-hand static gestures map to configurable press/hold keyboard actions.
 - macOS Camera and Accessibility permissions have been verified.
 - Camera index can be selected from the command line.
+- Active, fixed, and all-display monitor mapping is supported.
+- Mouse calibration is integrated and persisted locally.
+- Two-finger vertical motion emits scroll events.
+- Cursor movement has configurable smoothing and a pixel deadzone.
 - Deterministic unit tests cover profile validation, role swapping, debounce,
   held-key release, calibration mapping, and special key resolution.
 
@@ -20,11 +24,10 @@
 
 ## Next priorities
 
-1. Detect monitor topology and support active/fixed/all-monitor cursor modes.
-2. Integrate mouse calibration into the live controller.
-3. Add explicit click-versus-drag timing and real scroll gestures.
-4. Add a safe arming gesture for left-hand keyboard actions.
-5. Add camera/profile selection UI and Windows 11 verification.
+1. Add a safe arming gesture for left-hand keyboard actions.
+2. Add camera/profile selection UI and Windows 11 verification.
+3. Add edge-dwell or gesture-based monitor switching for `active` mode.
+4. Package signed desktop builds for macOS and Windows 11.
 
 ## Run
 
