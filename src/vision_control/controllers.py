@@ -88,10 +88,19 @@ class MouseController:
         self.paused = False
         close = self.profile.thresholds.get("pinch_close_ratio", .35)
         open_ = self.profile.thresholds.get("pinch_open_ratio", .5)
-        left = pinch(hand, 4, 8, close, open_, self.left_down)
-        right = pinch(hand, 4, 12, close, open_, self.right_down)
+        primary_gesture = self.profile.thresholds.get(
+            "mouse_primary_click_gesture", "pinch_index")
+        secondary_gesture = self.profile.thresholds.get(
+            "mouse_secondary_click_gesture", "pinch_middle")
+        left = self._configured_pinch(
+            hand, primary_gesture, close, open_, self.left_down)
+        right = self._configured_pinch(
+            hand, secondary_gesture, close, open_, self.right_down)
         states = finger_states(hand)
-        scroll_pose = states == (True, True, False, False) and not left and not right
+        raw_pose, _ = classify_static(hand)
+        scroll_gesture = self.profile.thresholds.get(
+            "mouse_scroll_gesture", "peace")
+        scroll_pose = raw_pose == scroll_gesture and not left and not right
         now = time.monotonic()
         cursor = self.adapter.position()
         self.target_region = self.layout.target(cursor)
@@ -129,17 +138,21 @@ class MouseController:
             return
 
         self.last_scroll_y = None
-        target = self.calibration.map_to_region(hand.landmarks[8][0], hand.landmarks[8][1], self.target_region)
-        smoothing = self.profile.thresholds.get("cursor_smoothing", .35)
-        if self.last is None:
-            smoothed = target
-        else:
-            smoothed = (self.last[0] * (1 - smoothing) + target[0] * smoothing,
-                        self.last[1] * (1 - smoothing) + target[1] * smoothing)
-        deadzone_px = self.profile.thresholds.get("cursor_deadzone_px", 2.0)
-        if self.last is None or math.dist(smoothed, self.last) >= deadzone_px:
-            self.adapter.move(*smoothed)
-            self.last = smoothed
+        move_gesture = self.profile.thresholds.get("mouse_move_gesture", "any")
+        can_move = move_gesture == "any" or raw_pose == move_gesture
+        if can_move:
+            target = self.calibration.map_to_region(
+                hand.landmarks[8][0], hand.landmarks[8][1], self.target_region)
+            smoothing = self.profile.thresholds.get("cursor_smoothing", .6)
+            if self.last is None:
+                smoothed = target
+            else:
+                smoothed = (self.last[0] * (1 - smoothing) + target[0] * smoothing,
+                            self.last[1] * (1 - smoothing) + target[1] * smoothing)
+            deadzone_px = self.profile.thresholds.get("cursor_deadzone_px", .5)
+            if self.last is None or math.dist(smoothed, self.last) >= deadzone_px:
+                self.adapter.move(*smoothed)
+                self.last = smoothed
 
         self._button("left", left, now)
         self._button("right", right, now)
@@ -148,7 +161,7 @@ class MouseController:
         elif self.right_down:
             self.status = self._pinch_status("right", now)
         else:
-            self.status = "move"
+            self.status = "move" if can_move else f"waiting_{move_gesture}"
         if self.edge_switcher.progress > 0:
             self.status = (f"switch_{self.edge_switcher.pending_edge}_"
                            f"{int(self.edge_switcher.progress * 100)}%")
@@ -163,6 +176,14 @@ class MouseController:
             self.adapter.button_up(button)
             self.pinch_started.pop(button, None)
         setattr(self, attr, active)
+
+    @staticmethod
+    def _configured_pinch(hand, gesture, close, open_, active):
+        if gesture == "pinch_index":
+            return pinch(hand, 4, 8, close, open_, active)
+        if gesture == "pinch_middle":
+            return pinch(hand, 4, 12, close, open_, active)
+        return False
 
     def _pinch_status(self, button: str, now: float) -> str:
         elapsed = now - self.pinch_started.get(button, now)

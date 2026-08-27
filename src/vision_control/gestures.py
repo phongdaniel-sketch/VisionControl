@@ -4,6 +4,12 @@ from .types import HandObservation, distance
 FINGERTIPS = (8, 12, 16, 20)
 FINGER_PIPS = (6, 10, 14, 18)
 
+MOUSE_MOVE_GESTURES = {
+    "any", "point", "peace", "three_fingers", "four_fingers", "open_palm",
+}
+MOUSE_CLICK_GESTURES = {"disabled", "pinch_index", "pinch_middle"}
+MOUSE_SCROLL_GESTURES = {"peace", "three_fingers", "four_fingers", "open_palm"}
+
 
 def finger_states(hand: HandObservation) -> tuple[bool, bool, bool, bool]:
     p = hand.landmarks

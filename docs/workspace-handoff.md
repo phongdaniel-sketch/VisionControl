@@ -56,7 +56,7 @@ Run deterministic verification:
 PYTHONPATH=src .venv311/bin/python -m unittest discover -s tests -v
 ```
 
-Current result: 33 tests pass.
+Current result: 41 tests pass.
 
 ## Implemented behavior
 
@@ -76,6 +76,33 @@ Current result: 33 tests pass.
   Voice shown disabled for future development.
 - Settings opens only from the Controller's Settings button in normal use;
   opening it pauses and releases input, and saved changes restart paused.
+- Loading uses the approved rounded gradient/glow treatment without a secondary
+  percentage or stage line.
+- Camera startup/frame failures leave Controller visible in `ERROR · PAUSED`,
+  release all input, and allow a Settings → Save retry after permissions change.
+- Fresh/reset settings select camera `1`; fixed display index `0` is normalized
+  to the operating system primary display (the built-in Color LCD on this Mac).
+- The fixed-display combo currently shows `Built-in Retina Display`,
+  `DELL U2424HE`, and `ARZOPA`, including logical resolutions and a Primary tag.
+- High-contrast combo/spin styling and bundled chevron assets replace the
+  low-visibility native black increment/decrement controls.
+- Gestures now edits Disabled/Press/Hold and key/chord mappings directly on each
+  built-in gesture card; Fist remains a locked keyboard safety gesture.
+- Gestures has role-aware `Mouse hand · Right` / `Keyboard hand · Left` views.
+  Mouse controls can restrict pointer movement to a pose, swap/disable Index and
+  Middle pinch clicks, and choose Peace/Three/Four/Open palm for scrolling.
+  Fist always stops the pointer and releases mouse buttons.
+- Keyboard configures fist hold/release/cooldown and hand-loss auto-disarm.
+- Advanced contains only implemented recognition/pinch/drag/scroll thresholds,
+  with pinch hysteresis validation and recommended-default guidance.
+- Settings controls and navigation expose tooltips plus accessibility
+  descriptions for purpose, direction, and safety consequences.
+- Cursor response now defaults to `0.60` with a `0.5 px` deadzone. The current
+  local user profile was updated to the same values.
+- Settings pauses/releases input and stops the frame timer for its entire
+  session, avoiding concurrent MediaPipe work during page navigation.
+- `Processing · N FPS` is measured from completed tracking/render cycles and is
+  smoothed for readability; it is not a configured camera mode.
 
 ## Runtime controls
 
@@ -113,12 +140,19 @@ The current optimized local Apple Silicon artifacts are ignored by Git:
 - ZIP SHA-256: `e3f70be8da8dc59b64b9612789ef9188cc6fc1513b88190e1279efb7fcfd30a4`
 - DMG SHA-256: `27b3e41c85823dd11541947ab41f8bfc903e2f83f1ba9c2fd1cee794a58afb09`
 
-The `.app` opens Controller directly and the embedded-camera UI successfully ran
-camera index `1` paused for 20 seconds while detecting one and two hands.
+The `.app` opens Controller directly and the embedded-camera UI previously ran
+camera index `1` paused for 60 seconds while detecting one and two hands.
 MediaPipe, the offline model, and TFLite CPU delegate initialized successfully.
 The ZIP passed `unzip -t`, and the DMG passed
 `hdiutil verify` plus a read-only mount/signature/model check. PyInstaller's
 signature remains ad-hoc for local testing.
+
+The app bundle was rebuilt after the responsive-control changes. A Launch Services
+run reproduced missing Camera authorization and confirmed that the fixed app
+remains open in a safe error state instead of terminating. The currently open
+instance is waiting for packaged-app Camera access; after granting it, use
+Settings → Save to retry initialization. Existing ZIP/DMG hashes above refer to
+the prior release archive and should be regenerated before distribution.
 
 `scripts/build_macos_release.sh` stages the app on the system volume before DMG
 creation because `hdiutil -srcfolder` rejects the external repository volume.
@@ -128,8 +162,8 @@ credentials, so public signing/notarization cannot yet be executed.
 
 ## Known limitations and next work
 
-1. Complete `docs/macos-uat.md` with physical gestures and Accessibility granted
-   specifically to VisionControl; automated packaged smoke checks already pass.
+1. Grant Camera and Accessibility specifically to the rebuilt VisionControl app,
+   retry via Settings, then complete `docs/macos-uat.md` with physical gestures.
 2. Add the Developer ID Application identity and notary Keychain profile, then
    run `scripts/build_macos_release.sh --notarize`.
 3. Consider narrower MediaPipe collection in a later optimization; Matplotlib is

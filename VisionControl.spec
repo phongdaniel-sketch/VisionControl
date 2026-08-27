@@ -28,6 +28,7 @@ analysis = Analysis(
         ("docs/Vision Control logo.png", "docs"),
         ("docs/Splash Screen.png", "docs"),
         ("docs/Loading Screen.png", "docs"),
+        ("assets/ui", "assets/ui"),
         ("config/default_profile.json", "config"),
         ("assets/models/hand_landmarker.task", "assets/models"),
     ] + mediapipe_datas,

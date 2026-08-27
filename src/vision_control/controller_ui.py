@@ -29,6 +29,8 @@ class ControllerWindow(QMainWindow):
         self.runtime_factory = runtime_factory
         self.settings_factory = settings_factory
         self.settings_window = None
+        self.frame_error = None
+        self.closing = False
         self.last_frame_time = None
         self.smoothed_fps = 0.0
         self.setWindowTitle("VisionControl")
@@ -60,8 +62,10 @@ class ControllerWindow(QMainWindow):
         brand.setObjectName("brand")
         self.tracking_label = QLabel("● TRACKING")
         self.tracking_label.setStyleSheet("color: #59d36b; font-weight: 700")
-        self.fps_label = QLabel("-- FPS")
+        self.fps_label = QLabel("Processing · -- FPS")
         self.fps_label.setObjectName("muted")
+        self.fps_label.setToolTip(
+            "Measured completed tracking/render cycles, smoothed for readability")
         header.addWidget(logo)
         header.addWidget(brand)
         header.addStretch()
@@ -207,10 +211,29 @@ class ControllerWindow(QMainWindow):
             self._render_frame(snapshot.frame)
             self._render_status(snapshot)
         except Exception as exc:
-            self.timer.stop()
-            self.runtime.close()
-            QMessageBox.critical(self, "VisionControl stopped", str(exc))
-            self.close()
+            self.show_runtime_error(exc)
+
+    def show_runtime_error(self, exc):
+        self.timer.stop()
+        self.runtime.set_paused(True)
+        self.runtime.close()
+        self.frame_error = str(exc)
+        self.camera_label.clear()
+        self.camera_label.setText("Camera processing stopped safely")
+        self.status_mode.setText("ERROR · PAUSED")
+        self.status_action.setText("Released")
+        self.status_keyboard.setText("DISARMED")
+        self.tracking_label.setText("○ TRACKING · STOPPED")
+        self.tracking_label.setStyleSheet("color: #ff9b70; font-weight: 700")
+        self.help_label.setText(
+            f"{exc}\nAllow Camera access if macOS asks, then open Settings and Save to retry.")
+        self.pause_button.setText("Paused safely")
+        self.pause_button.setEnabled(False)
+        QMessageBox.critical(
+            self, "VisionControl paused safely",
+            f"Camera processing could not continue, but the app will remain open.\n\n"
+            f"{exc}\n\nAll mouse buttons and keyboard keys were released. "
+            "Allow Camera access if requested, then open Settings and Save to retry.")
 
     def _render_frame(self, frame):
         height, width, channels = frame.shape
@@ -225,7 +248,7 @@ class ControllerWindow(QMainWindow):
             instantaneous = 1.0 / max(now - self.last_frame_time, .001)
             self.smoothed_fps = (instantaneous if self.smoothed_fps == 0 else
                                  self.smoothed_fps * .9 + instantaneous * .1)
-            self.fps_label.setText(f"{self.smoothed_fps:.0f} FPS")
+            self.fps_label.setText(f"Processing · {self.smoothed_fps:.0f} FPS")
         self.last_frame_time = now
 
     def _render_status(self, snapshot):
@@ -267,6 +290,7 @@ class ControllerWindow(QMainWindow):
     def open_settings(self):
         self.runtime.set_paused(True)
         self._update_pause_button()
+        self.timer.stop()
         if self.settings_window is not None:
             self.settings_window.raise_()
             self.settings_window.activateWindow()
@@ -278,6 +302,11 @@ class ControllerWindow(QMainWindow):
 
     def _settings_closed(self):
         self.settings_window = None
+        if not self.closing and self.runtime.started:
+            self.last_frame_time = None
+            self.smoothed_fps = 0.0
+            self.fps_label.setText("Processing · -- FPS")
+            self.timer.start(16)
 
     def _reload_after_settings(self):
         self.timer.stop()
@@ -289,7 +318,12 @@ class ControllerWindow(QMainWindow):
             self.runtime = self.runtime_factory(
                 desktop.camera_index, True, profile_path)
             self.runtime.start()
+            self.frame_error = None
+            self.last_frame_time = None
+            self.smoothed_fps = 0.0
+            self.fps_label.setText("Processing · -- FPS")
             self._refresh_static_runtime_labels()
+            self.pause_button.setEnabled(True)
             self._update_pause_button()
             self.timer.start(16)
         except Exception as exc:
@@ -312,11 +346,15 @@ class ControllerWindow(QMainWindow):
             super().keyPressEvent(event)
 
     def closeEvent(self, event: QCloseEvent):
+        self.closing = True
         self.timer.stop()
         self.runtime.close()
         if self.settings_window is not None:
             self.settings_window.close()
         event.accept()
+        app = QApplication.instance()
+        if app is not None:
+            QTimer.singleShot(0, app.quit)
 
 
 def main(argv=None) -> int:
@@ -333,10 +371,14 @@ def main(argv=None) -> int:
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("VisionControl")
+    # OpenCV owns the temporary startup windows. Keep Qt alive while those
+    # windows are destroyed and the Controller becomes the primary window.
+    app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(APP_STYLE)
     icon = QIcon(str(ROOT / "docs" / "Vision Control logo.png"))
     app.setWindowIcon(icon)
     runtime = VisionRuntime(camera_index, start_paused, profile_path)
+    window = None
     try:
         import cv2
         startup = StartupScreen(cv2, ROOT / "docs" / "Splash Screen.png",
@@ -346,15 +388,30 @@ def main(argv=None) -> int:
                       startup.show_loading(value, message,
                                            250 if value >= 1 else 1))
         cv2.destroyAllWindows()
+        app.processEvents()
         window = ControllerWindow(runtime)
         window.show()
+        app.processEvents()
         if args.quit_after is not None:
             QTimer.singleShot(max(1, int(args.quit_after * 1000)), window.close)
         return app.exec()
     except Exception as exc:
         runtime.close()
-        QMessageBox.critical(None, "VisionControl could not start", str(exc))
-        return 1
+        try:
+            import cv2
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
+        if runtime.profile is None:
+            QMessageBox.critical(None, "VisionControl could not start", str(exc))
+            return 1
+        window = ControllerWindow(runtime)
+        window.show()
+        app.processEvents()
+        QTimer.singleShot(0, lambda error=exc: window.show_runtime_error(error))
+        if args.quit_after is not None:
+            QTimer.singleShot(max(1, int(args.quit_after * 1000)), window.close)
+        return app.exec()
 
 
 if __name__ == "__main__":

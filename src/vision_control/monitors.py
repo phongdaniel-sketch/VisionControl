@@ -8,6 +8,7 @@ class ScreenRegion:
     width: int
     height: int
     name: str = "display"
+    is_primary: bool = False
 
     def contains(self, point: tuple[float, float]) -> bool:
         px, py = point
@@ -104,9 +105,13 @@ class EdgeDwellSwitcher:
 def discover_monitors(mode: str = "active", fixed_index: int = 0) -> MonitorLayout:
     try:
         from screeninfo import get_monitors
-        regions = [ScreenRegion(int(item.x), int(item.y), int(item.width), int(item.height),
-                                getattr(item, "name", None) or f"display-{index}")
-                   for index, item in enumerate(get_monitors())]
+        monitors = sorted(get_monitors(),
+                          key=lambda item: not bool(getattr(item, "is_primary", False)))
+        regions = [ScreenRegion(
+            int(item.x), int(item.y), int(item.width), int(item.height),
+            getattr(item, "name", None) or f"display-{index}",
+            bool(getattr(item, "is_primary", False)),
+        ) for index, item in enumerate(monitors)]
     except Exception:
         regions = [ScreenRegion(0, 0, 1920, 1080, "fallback")]
     return MonitorLayout(regions, mode, fixed_index)

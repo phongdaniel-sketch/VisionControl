@@ -1,4 +1,9 @@
-APP_STYLE = """
+from .paths import resource_root
+
+
+_ASSET_ROOT = (resource_root() / "assets" / "ui").as_posix()
+
+_APP_STYLE_TEMPLATE = """
 QWidget { background: #070c16; color: #e8edf7; font-family: "Inter", "SF Pro Text", "Segoe UI"; font-size: 13px; }
 QLabel, QCheckBox { background: transparent; }
 QMainWindow, QDialog { background: #050914; }
@@ -19,9 +24,21 @@ QPushButton#danger { background: #331718; border-color: #ff6934; color: #fff2ed;
 QPushButton#nav { text-align: left; border: 0; background: transparent; color: #aeb8c8; }
 QPushButton#nav:hover { background: #111b2b; color: #ffffff; }
 QPushButton#nav:checked { background: #123ca8; color: #ffffff; }
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { min-height: 34px; padding: 0 10px; background: #0b1220; border: 1px solid #26344a; border-radius: 7px; selection-background-color: #246bff; }
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #3478ff; }
-QComboBox::drop-down { border: 0; width: 24px; }
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox { min-height: 36px; padding: 0 12px; background: #111c2d; color: #f4f7fc; border: 1px solid #49617f; border-radius: 7px; selection-background-color: #246bff; }
+QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover { background: #142238; border-color: #6785ad; }
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus { background: #142238; border: 2px solid #3478ff; }
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled { background: #0a111d; color: #718097; border-color: #26364d; }
+QComboBox { padding-right: 38px; }
+QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: top right; width: 32px; background: #1b2b43; border-left: 1px solid #49617f; border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
+QComboBox::drop-down:hover { background: #245caa; }
+QComboBox::down-arrow { image: url("__DOWN_ARROW__"); width: 12px; height: 12px; }
+QComboBox QAbstractItemView { background: #101a2a; color: #f4f7fc; border: 1px solid #56739a; selection-background-color: #1d5fd1; selection-color: #ffffff; outline: 0; padding: 4px; }
+QSpinBox, QDoubleSpinBox { padding-right: 38px; }
+QSpinBox::up-button, QDoubleSpinBox::up-button { subcontrol-origin: border; subcontrol-position: top right; width: 30px; background: #1b2b43; border-left: 1px solid #49617f; border-bottom: 1px solid #344967; border-top-right-radius: 6px; }
+QSpinBox::down-button, QDoubleSpinBox::down-button { subcontrol-origin: border; subcontrol-position: bottom right; width: 30px; background: #1b2b43; border-left: 1px solid #49617f; border-top: 1px solid #344967; border-bottom-right-radius: 6px; }
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover { background: #245caa; }
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow { image: url("__UP_ARROW__"); width: 12px; height: 12px; }
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow { image: url("__DOWN_ARROW__"); width: 12px; height: 12px; }
 QCheckBox { spacing: 9px; }
 QCheckBox::indicator { width: 34px; height: 18px; }
 QCheckBox::indicator:unchecked { border: 1px solid #3a4658; border-radius: 9px; background: #141c29; }
@@ -32,6 +49,10 @@ QScrollBar::handle:vertical { background: #2a374a; border-radius: 5px; min-heigh
 QStatusBar { color: #9aa6b7; }
 QToolTip { background: #111a29; color: #ffffff; border: 1px solid #33445e; }
 """
+
+APP_STYLE = (_APP_STYLE_TEMPLATE
+             .replace("__UP_ARROW__", f"{_ASSET_ROOT}/chevron-up.svg")
+             .replace("__DOWN_ARROW__", f"{_ASSET_ROOT}/chevron-down.svg"))
 
 GESTURE_LABELS = {
     "point": "Point", "peace": "Peace", "three_fingers": "Three fingers",

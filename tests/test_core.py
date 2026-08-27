@@ -50,7 +50,14 @@ class CoreTests(unittest.TestCase):
     def test_profile_loads_and_has_two_roles(self):
         self.assertNotEqual(self.profile.mouse_hand, self.profile.keyboard_hand)
         self.assertTrue(self.profile.swap_hands)
-        self.assertEqual(self.profile.monitor_mode, "active")
+        self.assertEqual(self.profile.monitor_mode, "fixed")
+        self.assertEqual(self.profile.fixed_monitor, 0)
+        self.assertEqual(self.profile.thresholds["cursor_smoothing"], .6)
+        self.assertEqual(self.profile.thresholds["cursor_deadzone_px"], .5)
+        self.assertEqual(self.profile.thresholds["mouse_move_gesture"], "any")
+        self.assertEqual(
+            self.profile.thresholds["mouse_primary_click_gesture"], "pinch_index")
+        self.assertEqual(self.profile.thresholds["mouse_scroll_gesture"], "peace")
         self.assertTrue(self.profile.arming.enabled)
         self.assertNotIn("fist", self.profile.bindings)
         self.assertEqual(self.profile.bindings["point"].keys, ("w",))
@@ -104,6 +111,27 @@ class CoreTests(unittest.TestCase):
             path = Path(directory) / "bad.json"; path.write_text(json.dumps(raw))
             with self.assertRaises(ValueError): load_profile(path)
 
+    def test_invalid_pinch_hysteresis_is_rejected(self):
+        root = Path(__file__).parents[1]
+        raw = json.loads((root / "config/default_profile.json").read_text())
+        raw["thresholds"]["pinch_close_ratio"] = .6
+        raw["thresholds"]["pinch_open_ratio"] = .5
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bad-pinch.json"
+            path.write_text(json.dumps(raw))
+            with self.assertRaisesRegex(ValueError, "pinch_close_ratio"):
+                load_profile(path)
+
+    def test_duplicate_mouse_click_mapping_is_rejected(self):
+        root = Path(__file__).parents[1]
+        raw = json.loads((root / "config/default_profile.json").read_text())
+        raw["thresholds"]["mouse_secondary_click_gesture"] = "pinch_index"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bad-mouse-map.json"
+            path.write_text(json.dumps(raw))
+            with self.assertRaisesRegex(ValueError, "must differ"):
+                load_profile(path)
+
     def test_calibration_maps_active_region_to_screen(self):
         calibration = MouseCalibration(.1, .9, .1, .9)
         self.assertEqual(calibration.map(.1, .1, (1000, 500)), (0.0, 0.0))
@@ -137,6 +165,21 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(MonitorLayout(regions, "fixed", 1).target((-100, 500)).name, "main")
         union = MonitorLayout(regions, "all").target((0, 0))
         self.assertEqual((union.x, union.y, union.width, union.height), (-1920, 0, 4480, 1440))
+
+    def test_monitor_discovery_places_primary_display_at_fixed_index_zero(self):
+        from types import SimpleNamespace
+        from vision_control.monitors import discover_monitors
+
+        secondary = SimpleNamespace(
+            x=1470, y=0, width=1920, height=1080,
+            name="secondary", is_primary=False)
+        primary = SimpleNamespace(
+            x=0, y=0, width=1470, height=956,
+            name="primary", is_primary=True)
+        with patch("screeninfo.get_monitors", return_value=[secondary, primary]):
+            layout = discover_monitors("fixed", 0)
+        self.assertTrue(layout.regions[0].is_primary)
+        self.assertEqual(layout.target((2000, 500)).name, "primary")
 
     def test_edge_dwell_switches_once_and_requires_center_release(self):
         left = ScreenRegion(-1920, 0, 1920, 1080, "left")
@@ -208,6 +251,39 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(controller.target_region.name, "left")
         self.assertLess(move[1], 0)
 
+    def test_mouse_move_pose_can_be_restricted(self):
+        profile = replace(
+            self.profile,
+            thresholds={**self.profile.thresholds, "mouse_move_gesture": "point"},
+        )
+        adapter = RecordingInput()
+        controller = MouseController(adapter, profile)
+        controller.update(hand((True, True, True, True), "Right"))
+        self.assertFalse(any(event[0] == "move" for event in adapter.events))
+        controller.update(hand((True, False, False, False), "Right"))
+        self.assertTrue(any(event[0] == "move" for event in adapter.events))
+
+    def test_mouse_scroll_pose_can_be_remapped(self):
+        profile = replace(
+            self.profile,
+            thresholds={**self.profile.thresholds,
+                        "mouse_scroll_gesture": "three_fingers"},
+        )
+        adapter = RecordingInput()
+        controller = MouseController(adapter, profile)
+        first = hand((True, True, True, False), "Right")
+        points = list(first.landmarks)
+        for tip in (8, 12):
+            points[tip] = (.5, .25, 0)
+        first = HandObservation("Right", tuple(points))
+        points = list(first.landmarks)
+        for tip in (8, 12):
+            points[tip] = (.5, .35, 0)
+        second = HandObservation("Right", tuple(points))
+        controller.update(first)
+        controller.update(second)
+        self.assertTrue(any(event[0] == "scroll" for event in adapter.events))
+
     def test_two_finger_vertical_motion_scrolls(self):
         adapter = RecordingInput()
         controller = MouseController(adapter, self.profile)
@@ -255,6 +331,13 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(empty.shape, (626, 1000, 3))
         self.assertEqual(complete.shape, (626, 1000, 3))
         self.assertNotEqual(int(empty.sum()), int(complete.sum()))
+        self.assertTrue((screen.render_loading(.52, "First stage") ==
+                         screen.render_loading(.52, "Different stage")).all())
+        x, center_y, width, _height = screen._bar_geometry()
+        warm = complete[center_y, x + 12]
+        cool = complete[center_y, x + int(width * .84)]
+        self.assertGreater(int(warm[2]), int(warm[0]))
+        self.assertGreater(int(cool[0]), int(cool[2]))
 
     def test_desktop_icon_assets_are_readable(self):
         from PIL import Image
@@ -342,6 +425,31 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(runtime.keyboard.calls, 1)
         self.assertEqual(runtime.arming.calls, 1)
 
+    def test_runtime_close_is_idempotent_when_partial_cleanup_fails(self):
+        from vision_control.runtime import VisionRuntime
+
+        class FailingClose:
+            def __init__(self): self.calls = 0
+            def close(self):
+                self.calls += 1
+                raise ValueError("already closed")
+
+        class Adapter:
+            def __init__(self): self.calls = 0
+            def release_all(self): self.calls += 1
+
+        runtime = VisionRuntime()
+        tracker = FailingClose()
+        adapter = Adapter()
+        runtime.tracker = tracker
+        runtime.adapter = adapter
+        runtime.close()
+        runtime.close()
+        self.assertEqual(tracker.calls, 1)
+        self.assertEqual(adapter.calls, 1)
+        self.assertIsNone(runtime.tracker)
+        self.assertIsNone(runtime.adapter)
+
     def test_controller_opens_settings_only_from_button_and_disables_voice(self):
         import os
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -355,6 +463,7 @@ class CoreTests(unittest.TestCase):
                 self.paused = False
                 self.pause_calls = 0
                 self.close_calls = 0
+                self.started = True
 
             def set_paused(self, value):
                 self.paused = value
@@ -380,11 +489,140 @@ class CoreTests(unittest.TestCase):
                 window.settings_button.click()
                 app.processEvents()
                 self.assertIsNotNone(window.settings_window)
+                self.assertFalse(window.timer.isActive())
                 self.assertFalse(window.settings_window.voice_button.isEnabled())
+                self.assertEqual(window.settings_window.camera.value(), 1)
+                self.assertEqual(
+                    window.settings_window.monitor_mode.currentText(), "fixed")
+                self.assertEqual(window.settings_window.fixed_monitor.currentData(), 0)
+                self.assertIn("Primary", window.settings_window.fixed_monitor.currentText())
+                self.assertIn("×", window.settings_window.fixed_monitor.currentText())
+                self.assertEqual(
+                    window.settings_window.gesture_hand_selector.itemText(0),
+                    "Mouse hand · Right")
+                self.assertEqual(
+                    window.settings_window.gesture_hand_selector.itemText(1),
+                    "Keyboard hand · Left")
                 self.assertTrue(runtime.paused)
                 self.assertGreaterEqual(runtime.pause_calls, 1)
+                window.settings_window.close()
+                app.processEvents()
+                self.assertTrue(window.timer.isActive())
                 window.close()
                 app.processEvents()
+
+    def test_controller_frame_error_releases_runtime_without_closing_window(self):
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication, QMessageBox
+        from vision_control.controller_ui import ControllerWindow
+
+        class FailingRuntime:
+            def __init__(self, profile):
+                self.profile = profile
+                self.paused = False
+                self.pause_calls = 0
+                self.close_calls = 0
+
+            def process_frame(self):
+                raise RuntimeError("camera frame unavailable")
+
+            def set_paused(self, value):
+                self.paused = value
+                self.pause_calls += 1
+
+            def toggle_paused(self):
+                return self.paused
+
+            def close(self):
+                self.close_calls += 1
+
+        app = QApplication.instance() or QApplication([])
+        runtime = FailingRuntime(self.profile)
+        window = ControllerWindow(runtime)
+        window.timer.stop()
+        window.show()
+        with patch.object(QMessageBox, "critical", return_value=None):
+            window._process_frame()
+        app.processEvents()
+        self.assertTrue(window.isVisible())
+        self.assertEqual(window.frame_error, "camera frame unavailable")
+        self.assertTrue(runtime.paused)
+        self.assertEqual(runtime.pause_calls, 1)
+        self.assertEqual(runtime.close_calls, 1)
+        self.assertFalse(window.pause_button.isEnabled())
+        window.close()
+        app.processEvents()
+
+    def test_settings_tooltips_and_gesture_advanced_values_round_trip(self):
+        import os
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+        import vision_control.settings_ui as settings_ui
+
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as directory:
+            app_settings = Path(directory) / "app_settings.json"
+            user_profile = Path(directory) / "user_profile.json"
+            with patch.object(settings_ui, "APP_SETTINGS", app_settings), \
+                 patch.object(settings_ui, "USER_PROFILE", user_profile):
+                window = settings_ui.SettingsWindow("Gestures")
+                explained = [
+                    window.camera, window.start_paused, window.mouse_hand,
+                    window.swap_hands, window.monitor_mode, window.fixed_monitor,
+                    window.smoothing, window.deadzone, window.scroll,
+                    window.edge_switch, window.edge_dwell, window.edge_zone,
+                    window.arm_hold, window.arm_release_frames,
+                    window.arm_cooldown, window.auto_disarm,
+                    window.gesture_confidence, window.gesture_on_frames,
+                    window.pinch_close, window.pinch_open, window.drag_hold,
+                    window.scroll_deadzone, window.gesture_hand_selector,
+                    window.mouse_move_gesture, window.mouse_primary_click,
+                    window.mouse_secondary_click, window.mouse_scroll_gesture,
+                ]
+                explained.extend(window.nav_buttons.values())
+                for action, keys in window.gesture_rows.values():
+                    explained.extend((action, keys))
+                self.assertTrue(all(control.toolTip().strip()
+                                    for control in explained))
+                self.assertNotIn("fist", window.gesture_rows)
+
+                action, keys = window.gesture_rows["peace"]
+                action.setCurrentText("Hold")
+                keys.setText("ctrl, c")
+                window.arm_hold.setValue(1.4)
+                window.auto_disarm.setValue(3.5)
+                window.gesture_confidence.setValue(.8)
+                window.gesture_on_frames.setValue(2)
+                window.pinch_close.setValue(.3)
+                window.pinch_open.setValue(.55)
+                window.drag_hold.setValue(.6)
+                window.scroll_deadzone.setValue(.02)
+                window._set_combo_data(window.mouse_move_gesture, "point")
+                window._set_combo_data(window.mouse_primary_click, "pinch_middle")
+                window._set_combo_data(window.mouse_secondary_click, "disabled")
+                window._set_combo_data(window.mouse_scroll_gesture, "open_palm")
+                self.assertTrue(window.save())
+                app.processEvents()
+
+                profile = load_profile(user_profile)
+                self.assertEqual(profile.bindings["peace"].action_type, "hold")
+                self.assertEqual(profile.bindings["peace"].keys, ("ctrl", "c"))
+                self.assertEqual(profile.arming.hold_seconds, 1.4)
+                self.assertEqual(profile.arming.auto_disarm_seconds, 3.5)
+                self.assertEqual(profile.thresholds["gesture_confidence"], .8)
+                self.assertEqual(profile.thresholds["gesture_on_frames"], 2)
+                self.assertEqual(profile.thresholds["pinch_close_ratio"], .3)
+                self.assertEqual(profile.thresholds["pinch_open_ratio"], .55)
+                self.assertEqual(profile.thresholds["drag_hold_seconds"], .6)
+                self.assertEqual(profile.thresholds["scroll_deadzone"], .02)
+                self.assertEqual(profile.thresholds["mouse_move_gesture"], "point")
+                self.assertEqual(
+                    profile.thresholds["mouse_primary_click_gesture"], "pinch_middle")
+                self.assertEqual(
+                    profile.thresholds["mouse_secondary_click_gesture"], "disabled")
+                self.assertEqual(
+                    profile.thresholds["mouse_scroll_gesture"], "open_palm")
 
 
 if __name__ == "__main__": unittest.main()

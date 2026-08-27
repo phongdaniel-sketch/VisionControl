@@ -5,7 +5,7 @@ from .paths import resource_root
 from .runtime import VisionRuntime
 
 
-def run(camera_index=0, start_paused=False, profile_path=None):
+def run(camera_index=1, start_paused=False, profile_path=None):
     import cv2
     root = resource_root()
     startup = None
@@ -47,7 +47,7 @@ def run(camera_index=0, start_paused=False, profile_path=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="VisionControl webcam controller")
-    parser.add_argument("--camera-index", type=int, default=0)
+    parser.add_argument("--camera-index", type=int, default=1)
     parser.add_argument("--start-paused", action="store_true")
     parser.add_argument("--profile", type=Path)
     args = parser.parse_args(argv)

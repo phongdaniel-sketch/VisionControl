@@ -37,7 +37,7 @@ class RuntimeSnapshot:
 class VisionRuntime:
     """Owns camera tracking and input side effects for one controller session."""
 
-    def __init__(self, camera_index=0, start_paused=False, profile_path=None,
+    def __init__(self, camera_index=1, start_paused=False, profile_path=None,
                  camera_factory=Camera, tracker_factory=MediaPipeTracker,
                  adapter_factory=PynputInputAdapter):
         self.camera_index = camera_index
@@ -212,21 +212,27 @@ class VisionRuntime:
 
     def close(self) -> None:
         self._release_controls()
-        if self.adapter is not None:
-            self.adapter.release_all()
-        if self.camera is not None:
-            self.camera.close()
-        if self.tracker is not None:
-            self.tracker.close()
+        adapter, self.adapter = self.adapter, None
+        camera, self.camera = self.camera, None
+        tracker, self.tracker = self.tracker, None
+        self._safe_cleanup("input adapter", adapter, "release_all")
+        self._safe_cleanup("camera", camera, "close")
+        self._safe_cleanup("hand tracker", tracker, "close")
         self.started = False
 
     def _release_controls(self) -> None:
-        if self.arming is not None:
-            self.arming.disarm()
-        if self.keyboard is not None:
-            self.keyboard.release_all()
-        if self.mouse is not None:
-            self.mouse.release_all()
+        self._safe_cleanup("arming state", self.arming, "disarm")
+        self._safe_cleanup("keyboard", self.keyboard, "release_all")
+        self._safe_cleanup("mouse", self.mouse, "release_all")
+
+    @staticmethod
+    def _safe_cleanup(label, target, method) -> None:
+        if target is None:
+            return
+        try:
+            getattr(target, method)()
+        except Exception as exc:
+            print(f"[shutdown] unable to close {label}: {exc}", flush=True)
 
     @staticmethod
     def _overlay_values(snapshot: RuntimeSnapshot) -> dict:
