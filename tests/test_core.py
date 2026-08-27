@@ -15,7 +15,8 @@ from vision_control.monitors import MonitorLayout, ScreenRegion
 from vision_control.arming import ArmingController, ArmingSettings
 from vision_control.startup import StartupScreen
 from vision_control.settings import (DesktopSettings, load_desktop_settings,
-                                     save_desktop_settings, save_user_profile)
+                                     save_desktop_settings, save_user_profile,
+                                     apply_gesture_bindings, parse_key_list)
 
 
 class RecordingInput:
@@ -57,6 +58,17 @@ class CoreTests(unittest.TestCase):
         point = hand((True, False, False, False))
         for _ in range(5): controller.update(point)
         self.assertEqual([e for e in adapter.events if e == ("press", "w")], [("press", "w")])
+
+    def test_keyboard_press_combination_is_emitted_as_chord(self):
+        profile = replace(self.profile, bindings={**self.profile.bindings,
+                                                  "point": GestureBinding("press", ("ctrl", "c"))})
+        adapter = RecordingInput(); controller = GestureController(adapter, profile)
+        point = hand((True, False, False, False))
+        for _ in range(3): controller.update(point)
+        self.assertEqual(adapter.events, [
+            ("key_down", "ctrl"), ("key_down", "c"),
+            ("key_up", "c"), ("key_up", "ctrl"),
+        ])
 
     def test_held_binding_releases_when_gesture_disappears(self):
         profile = replace(self.profile, bindings={**self.profile.bindings,
@@ -224,6 +236,30 @@ class CoreTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 save_user_profile(path, invalid)
             self.assertEqual(path.read_text(), original)
+
+    def test_gesture_key_list_accepts_supported_combinations(self):
+        self.assertEqual(parse_key_list("Ctrl + C"), ("ctrl", "c"))
+        self.assertEqual(parse_key_list("shift, left"), ("shift", "left"))
+        with self.assertRaisesRegex(ValueError, "Unsupported key"):
+            parse_key_list("volume_up")
+
+    def test_gesture_bindings_can_be_changed_or_disabled(self):
+        root = Path(__file__).parents[1]
+        raw = json.loads((root / "config/default_profile.json").read_text())
+        updated = apply_gesture_bindings(raw, {
+            "point": ("Hold", "ctrl, c"),
+            "peace": ("Disabled", ""),
+        })
+        self.assertEqual(updated["left_hand"]["point"],
+                         {"type": "hold", "keys": ["ctrl", "c"]})
+        self.assertNotIn("peace", updated["left_hand"])
+        self.assertIn("peace", raw["left_hand"])
+
+    def test_fist_cannot_be_configured_in_gesture_editor(self):
+        root = Path(__file__).parents[1]
+        raw = json.loads((root / "config/default_profile.json").read_text())
+        with self.assertRaisesRegex(ValueError, "cannot be configured"):
+            apply_gesture_bindings(raw, {"fist": ("Press", "space")})
 
 
 if __name__ == "__main__": unittest.main()

@@ -1,9 +1,20 @@
 import json
 import os
+import re
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from .profile import load_profile
+from .profile import ALLOWED_KEYS, load_profile
+
+
+EDITABLE_GESTURES = (
+    "point",
+    "peace",
+    "three_fingers",
+    "four_fingers",
+    "open_palm",
+)
 
 
 @dataclass(frozen=True)
@@ -42,6 +53,36 @@ def save_user_profile(path: str | Path, raw: dict) -> None:
         os.replace(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def parse_key_list(value: str) -> tuple[str, ...]:
+    keys = tuple(part for part in re.split(r"[\s,+]+", value.strip().lower()) if part)
+    if not keys:
+        raise ValueError("Enter at least one key")
+    invalid = [key for key in keys if key not in ALLOWED_KEYS]
+    if invalid:
+        raise ValueError(f"Unsupported key(s): {', '.join(invalid)}")
+    return keys
+
+
+def apply_gesture_bindings(raw: dict, selections: dict[str, tuple[str, str]]) -> dict:
+    updated = deepcopy(raw)
+    bindings = dict(updated.get("left_hand", {}))
+    for gesture, (action, key_text) in selections.items():
+        if gesture not in EDITABLE_GESTURES:
+            raise ValueError(f"Gesture cannot be configured here: {gesture}")
+        normalized_action = action.strip().lower()
+        if normalized_action == "disabled":
+            bindings.pop(gesture, None)
+            continue
+        if normalized_action not in {"press", "hold"}:
+            raise ValueError(f"Unsupported action for {gesture}: {action}")
+        bindings[gesture] = {
+            "type": normalized_action,
+            "keys": list(parse_key_list(key_text)),
+        }
+    updated["left_hand"] = bindings
+    return updated
 
 
 def _write_json(path: Path, value: dict) -> None:

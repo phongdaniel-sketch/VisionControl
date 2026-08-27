@@ -74,6 +74,11 @@ monitor mode, cursor smoothing/deadzone, and scroll sensitivity. Use **Save and
 Start VisionControl** to persist a validated local profile and launch the camera
 controller. Personal settings are stored under `data/` and are ignored by Git.
 
+The left-hand gesture editor supports Disabled, Press, and Hold actions. Enter
+one key (`space`) or a comma-separated shortcut (`ctrl, c`). A press shortcut is
+emitted as a chord; held keys are always released when the gesture ends, the app
+pauses, or keyboard mode is disarmed. The fist remains reserved for arming.
+
 The original CLI remains available and accepts a custom profile:
 
 ```bash

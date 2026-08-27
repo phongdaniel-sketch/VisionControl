@@ -4,7 +4,8 @@ import sys
 from pathlib import Path
 
 from .profile import load_profile
-from .settings import (DesktopSettings, load_desktop_settings,
+from .settings import (EDITABLE_GESTURES, DesktopSettings,
+                       apply_gesture_bindings, load_desktop_settings,
                        save_desktop_settings, save_user_profile)
 
 
@@ -18,9 +19,10 @@ def main() -> int:
     try:
         from PySide6.QtGui import QIcon
         from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox,
-                                       QDoubleSpinBox, QFormLayout, QHBoxLayout,
-                                       QLabel, QMainWindow, QMessageBox,
-                                       QPushButton, QSpinBox, QVBoxLayout, QWidget)
+                                       QDoubleSpinBox, QFormLayout, QGridLayout,
+                                       QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+                                       QMainWindow, QMessageBox, QPushButton,
+                                       QSpinBox, QVBoxLayout, QWidget)
     except ImportError as exc:
         raise SystemExit("PySide6 is required. Run: python -m pip install -r requirements.txt") from exc
 
@@ -28,7 +30,7 @@ def main() -> int:
         def __init__(self):
             super().__init__()
             self.setWindowTitle("VisionControl Settings")
-            self.setMinimumWidth(520)
+            self.setMinimumWidth(620)
             icon = QIcon(str(ROOT / "docs" / "Vision Control logo.png"))
             self.setWindowIcon(icon)
             QApplication.instance().setWindowIcon(icon)
@@ -60,6 +62,37 @@ def main() -> int:
             form.addRow("Cursor deadzone", self.deadzone)
             form.addRow("Scroll sensitivity", self.scroll)
 
+            gesture_labels = {
+                "point": "Point (index finger)",
+                "peace": "Peace (two fingers)",
+                "three_fingers": "Three fingers",
+                "four_fingers": "Four fingers",
+                "open_palm": "Open palm",
+            }
+            gesture_group = QGroupBox("Left-hand keyboard gestures")
+            gesture_layout = QGridLayout()
+            gesture_layout.addWidget(QLabel("Gesture"), 0, 0)
+            gesture_layout.addWidget(QLabel("Action"), 0, 1)
+            gesture_layout.addWidget(QLabel("Keys (comma separated)"), 0, 2)
+            self.gesture_rows = {}
+            for row, gesture in enumerate(EDITABLE_GESTURES, start=1):
+                binding = profile.bindings.get(gesture)
+                action = QComboBox(); action.addItems(["Disabled", "Press", "Hold"])
+                keys = QLineEdit(); keys.setPlaceholderText("Example: ctrl, c")
+                if binding:
+                    action.setCurrentText(binding.action_type.title())
+                    keys.setText(", ".join(binding.keys))
+                else:
+                    action.setCurrentText("Disabled")
+                    keys.setEnabled(False)
+                action.currentTextChanged.connect(
+                    lambda value, editor=keys: editor.setEnabled(value != "Disabled"))
+                gesture_layout.addWidget(QLabel(gesture_labels[gesture]), row, 0)
+                gesture_layout.addWidget(action, row, 1)
+                gesture_layout.addWidget(keys, row, 2)
+                self.gesture_rows[gesture] = (action, keys)
+            gesture_group.setLayout(gesture_layout)
+
             note = QLabel("Keyboard hand automatically uses the opposite hand.\nSettings are stored locally and can be changed before each launch.")
             note.setWordWrap(True); note.setStyleSheet("color: #666; margin-top: 8px")
             save_button = QPushButton("Save")
@@ -68,7 +101,7 @@ def main() -> int:
             save_button.clicked.connect(self.save)
             start_button.clicked.connect(self.start)
             buttons = QHBoxLayout(); buttons.addStretch(); buttons.addWidget(save_button); buttons.addWidget(start_button)
-            layout = QVBoxLayout(); layout.addLayout(form); layout.addWidget(note); layout.addLayout(buttons)
+            layout = QVBoxLayout(); layout.addLayout(form); layout.addWidget(gesture_group); layout.addWidget(note); layout.addLayout(buttons)
             container = QWidget(); container.setLayout(layout); self.setCentralWidget(container)
             self.monitor_mode.currentTextChanged.connect(self._update_monitor_state)
             self._update_monitor_state()
@@ -88,6 +121,11 @@ def main() -> int:
                 raw.setdefault("thresholds", {})["cursor_smoothing"] = self.smoothing.value()
                 raw["thresholds"]["cursor_deadzone_px"] = self.deadzone.value()
                 raw["thresholds"]["scroll_sensitivity"] = self.scroll.value()
+                selections = {
+                    gesture: (action.currentText(), keys.text())
+                    for gesture, (action, keys) in self.gesture_rows.items()
+                }
+                raw = apply_gesture_bindings(raw, selections)
                 save_user_profile(USER_PROFILE, raw)
                 save_desktop_settings(APP_SETTINGS, DesktopSettings(
                     self.camera.value(), self.start_paused.isChecked()))

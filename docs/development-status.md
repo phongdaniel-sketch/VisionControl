@@ -19,6 +19,8 @@
 - Native macOS and Windows icons are generated from the supplied application logo.
 - A cross-platform Settings window saves validated local camera, hand, monitor,
   cursor, and scrolling preferences before launching VisionControl.
+- Settings configures left-hand gestures as Disabled, Press, or Hold actions,
+  including validated multi-key chords; fist remains reserved for arming.
 - Deterministic unit tests cover profile validation, role swapping, debounce,
   held-key release, calibration mapping, and special key resolution.
 
@@ -31,9 +33,9 @@
 
 ## Next priorities
 
-1. Add editable left-hand gesture-to-key mappings to Settings.
-2. Add edge-dwell or gesture-based monitor switching for `active` mode.
-3. Verify on Windows 11, then package signed macOS and Windows builds.
+1. Add edge-dwell or gesture-based monitor switching for `active` mode.
+2. Verify permissions, camera, input, and DPI behavior on Windows 11.
+3. Package signed macOS and Windows builds.
 
 ## Run
 

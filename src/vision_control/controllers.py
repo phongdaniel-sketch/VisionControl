@@ -32,7 +32,17 @@ class GestureController:
         if self.on_count >= int(self.profile.thresholds.get("gesture_on_frames", 3)):
             if binding.action_type == "press":
                 if self.on_count == int(self.profile.thresholds.get("gesture_on_frames", 3)):
-                    for key in binding.keys: self.adapter.key_press(key)
+                    if len(binding.keys) == 1:
+                        self.adapter.key_press(binding.keys[0])
+                    else:
+                        pressed = []
+                        try:
+                            for key in binding.keys:
+                                self.adapter.key_down(key)
+                                pressed.append(key)
+                        finally:
+                            for key in reversed(pressed):
+                                self.adapter.key_up(key)
             else:
                 for key in binding.keys:
                     if key not in self.held: self.adapter.key_down(key); self.held.add(key)
