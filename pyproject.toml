@@ -8,5 +8,9 @@ version = "0.1.0"
 description = "Local-first two-hand webcam mouse and gesture controller"
 requires-python = ">=3.10"
 
+[project.scripts]
+visioncontrol = "vision_control.app:main"
+visioncontrol-settings = "vision_control.settings_ui:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]

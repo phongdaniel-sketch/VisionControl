@@ -15,7 +15,7 @@ from .gestures import classify_static
 from .startup import StartupCancelled, StartupScreen
 
 
-def run(camera_index=0, start_paused=False):
+def run(camera_index=0, start_paused=False, profile_path=None):
     import cv2
     root = Path(__file__).resolve().parents[2]
     adapter = mouse = keyboard = camera = tracker = None
@@ -24,7 +24,7 @@ def run(camera_index=0, start_paused=False):
                                 root / "docs" / "Loading Screen.png")
         startup.show_splash(1000)
         startup.show_loading(.08, "Loading profile")
-        profile = load_profile(root / "config" / "default_profile.json")
+        profile = load_profile(profile_path or root / "config" / "default_profile.json")
         startup.show_loading(.20, "Initializing input adapter")
         adapter = PynputInputAdapter()
         startup.show_loading(.32, "Detecting monitors")
@@ -134,9 +134,14 @@ def run(camera_index=0, start_paused=False):
         cv2.destroyAllWindows()
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="VisionControl webcam controller")
     parser.add_argument("--camera-index", type=int, default=0)
     parser.add_argument("--start-paused", action="store_true")
+    parser.add_argument("--profile", type=Path)
     args = parser.parse_args()
-    run(args.camera_index, args.start_paused)
+    run(args.camera_index, args.start_paused, args.profile)
+
+
+if __name__ == "__main__":
+    main()

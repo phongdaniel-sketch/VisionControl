@@ -16,6 +16,9 @@
   release latch, cooldown, and automatic hand-loss disarm.
 - The camera view stays unobstructed; branding is limited to startup screens.
 - A branded splash screen and stage-driven loading screen are shown during startup.
+- Native macOS and Windows icons are generated from the supplied application logo.
+- A cross-platform Settings window saves validated local camera, hand, monitor,
+  cursor, and scrolling preferences before launching VisionControl.
 - Deterministic unit tests cover profile validation, role swapping, debounce,
   held-key release, calibration mapping, and special key resolution.
 
@@ -28,9 +31,9 @@
 
 ## Next priorities
 
-1. Add camera/profile selection UI and Windows 11 verification.
+1. Add editable left-hand gesture-to-key mappings to Settings.
 2. Add edge-dwell or gesture-based monitor switching for `active` mode.
-3. Package signed desktop builds for macOS and Windows 11.
+3. Verify on Windows 11, then package signed macOS and Windows builds.
 
 ## Run
 

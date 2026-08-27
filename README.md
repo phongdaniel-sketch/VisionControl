@@ -58,6 +58,27 @@ default profile.
 
 The application logo is stored at `docs/Vision Control logo.png`. The live camera
 view does not render a logo overlay so the hand-tracking area stays unobstructed.
+Desktop icon assets are generated from that source at `assets/VisionControl.icns`
+for macOS and `assets/VisionControl.ico` for Windows.
+
+## Settings
+
+Open the cross-platform settings window with:
+
+```bash
+python -m vision_control.settings_ui
+```
+
+Settings lets you choose the camera index, mouse hand, mirrored-hand swapping,
+monitor mode, cursor smoothing/deadzone, and scroll sensitivity. Use **Save and
+Start VisionControl** to persist a validated local profile and launch the camera
+controller. Personal settings are stored under `data/` and are ignored by Git.
+
+The original CLI remains available and accepts a custom profile:
+
+```bash
+python -m vision_control.app --camera-index 1 --profile data/user_profile.json
+```
 
 ## Splash and loading screens
 

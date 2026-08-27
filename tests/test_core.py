@@ -14,6 +14,8 @@ from vision_control.types import HandsFrame
 from vision_control.monitors import MonitorLayout, ScreenRegion
 from vision_control.arming import ArmingController, ArmingSettings
 from vision_control.startup import StartupScreen
+from vision_control.settings import (DesktopSettings, load_desktop_settings,
+                                     save_desktop_settings, save_user_profile)
 
 
 class RecordingInput:
@@ -194,6 +196,34 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(empty.shape, (626, 1000, 3))
         self.assertEqual(complete.shape, (626, 1000, 3))
         self.assertNotEqual(int(empty.sum()), int(complete.sum()))
+
+    def test_desktop_icon_assets_are_readable(self):
+        from PIL import Image
+        root = Path(__file__).parents[1]
+        for name in ("VisionControl.ico", "VisionControl.icns"):
+            with Image.open(root / "assets" / name) as icon:
+                self.assertGreaterEqual(icon.width, 256)
+                self.assertGreaterEqual(icon.height, 256)
+
+    def test_desktop_settings_round_trip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app_settings.json"
+            self.assertEqual(load_desktop_settings(path), DesktopSettings())
+            expected = DesktopSettings(camera_index=3, start_paused=True)
+            save_desktop_settings(path, expected)
+            self.assertEqual(load_desktop_settings(path), expected)
+
+    def test_invalid_user_profile_does_not_replace_valid_profile(self):
+        root = Path(__file__).parents[1]
+        valid = json.loads((root / "config/default_profile.json").read_text())
+        invalid = {**valid, "keyboard_hand": valid["mouse_hand"]}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "user_profile.json"
+            save_user_profile(path, valid)
+            original = path.read_text()
+            with self.assertRaises(ValueError):
+                save_user_profile(path, invalid)
+            self.assertEqual(path.read_text(), original)
 
 
 if __name__ == "__main__": unittest.main()
