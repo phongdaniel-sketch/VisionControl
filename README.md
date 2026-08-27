@@ -102,6 +102,34 @@ aspect ratio:
 
 Press `Esc` during startup to cancel safely.
 
+## Standalone desktop build
+
+Install build dependencies and create the macOS application bundle:
+
+```bash
+python -m pip install -r requirements-build.txt
+pyinstaller --noconfirm --clean VisionControl.spec
+open dist/VisionControl.app
+```
+
+The current local build targets Apple Silicon (`arm64`). It includes the hand
+model and runs without a separate Python installation. Writable settings and
+calibration are stored in `~/Library/Application Support/VisionControl` on
+macOS and `%LOCALAPPDATA%\VisionControl` on Windows.
+
+For local macOS testing, PyInstaller applies an ad-hoc signature. Public
+distribution still requires Apple Developer ID signing and notarization. The
+same launcher and `.ico` asset are ready for a Windows 11 PyInstaller build,
+which must be produced and verified on Windows.
+
+The local test artifact can be compressed for transfer while preserving macOS
+bundle metadata:
+
+```bash
+ditto -c -k --sequesterRsrc --keepParent dist/VisionControl.app \
+  dist/VisionControl-0.1.0-macOS-arm64.zip
+```
+
 ## Safety
 
 Keep the emergency stop available. The application releases all held mouse buttons and keys on pause, camera failure, normal exit, and exceptions. Camera frames are processed locally and are not uploaded.

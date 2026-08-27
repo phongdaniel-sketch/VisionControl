@@ -18,6 +18,7 @@ from vision_control.startup import StartupScreen
 from vision_control.settings import (DesktopSettings, load_desktop_settings,
                                      save_desktop_settings, save_user_profile,
                                      apply_gesture_bindings, parse_key_list)
+from vision_control.paths import user_data_dir
 
 
 class RecordingInput:
@@ -263,6 +264,10 @@ class CoreTests(unittest.TestCase):
                 self.assertGreaterEqual(icon.width, 256)
                 self.assertGreaterEqual(icon.height, 256)
 
+    def test_bundled_hand_model_is_present(self):
+        model = Path(__file__).parents[1] / "assets/models/hand_landmarker.task"
+        self.assertGreater(model.stat().st_size, 1_000_000)
+
     def test_desktop_settings_round_trip(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "app_settings.json"
@@ -270,6 +275,15 @@ class CoreTests(unittest.TestCase):
             expected = DesktopSettings(camera_index=3, start_paused=True)
             save_desktop_settings(path, expected)
             self.assertEqual(load_desktop_settings(path), expected)
+
+    def test_user_data_directory_is_platform_specific(self):
+        home = Path("/Users/example")
+        self.assertEqual(user_data_dir("darwin", {}, home),
+                         home / "Library/Application Support/VisionControl")
+        self.assertEqual(user_data_dir("win32", {"LOCALAPPDATA": "C:/Local"}, home),
+                         Path("C:/Local/VisionControl"))
+        self.assertEqual(user_data_dir("linux", {"XDG_CONFIG_HOME": "/tmp/config"}, home),
+                         Path("/tmp/config/visioncontrol"))
 
     def test_invalid_user_profile_does_not_replace_valid_profile(self):
         root = Path(__file__).parents[1]

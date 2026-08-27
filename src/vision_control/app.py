@@ -13,11 +13,12 @@ from .roles import assign_roles
 from .monitors import discover_monitors
 from .gestures import classify_static
 from .startup import StartupCancelled, StartupScreen
+from .paths import resource_root, runtime_data_dir
 
 
 def run(camera_index=0, start_paused=False, profile_path=None):
     import cv2
-    root = Path(__file__).resolve().parents[2]
+    root = resource_root()
     adapter = mouse = keyboard = camera = tracker = None
     try:
         startup = StartupScreen(cv2, root / "docs" / "Splash Screen.png",
@@ -29,7 +30,7 @@ def run(camera_index=0, start_paused=False, profile_path=None):
         adapter = PynputInputAdapter()
         startup.show_loading(.32, "Detecting monitors")
         layout = discover_monitors(profile.monitor_mode, profile.fixed_monitor)
-        calibration_path = root / "data" / "mouse_calibration.json"
+        calibration_path = runtime_data_dir() / "mouse_calibration.json"
         calibration = load_calibration(calibration_path)
         mouse = MouseController(adapter, profile, layout, calibration)
         keyboard = GestureController(adapter, profile)
@@ -134,12 +135,12 @@ def run(camera_index=0, start_paused=False, profile_path=None):
         cv2.destroyAllWindows()
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description="VisionControl webcam controller")
     parser.add_argument("--camera-index", type=int, default=0)
     parser.add_argument("--start-paused", action="store_true")
     parser.add_argument("--profile", type=Path)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     run(args.camera_index, args.start_paused, args.profile)
 
 

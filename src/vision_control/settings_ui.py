@@ -7,12 +7,13 @@ from .profile import load_profile
 from .settings import (EDITABLE_GESTURES, DesktopSettings,
                        apply_gesture_bindings, load_desktop_settings,
                        save_desktop_settings, save_user_profile)
+from .paths import resource_root, runtime_data_dir
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = resource_root()
 DEFAULT_PROFILE = ROOT / "config" / "default_profile.json"
-USER_PROFILE = ROOT / "data" / "user_profile.json"
-APP_SETTINGS = ROOT / "data" / "app_settings.json"
+USER_PROFILE = runtime_data_dir() / "user_profile.json"
+APP_SETTINGS = runtime_data_dir() / "app_settings.json"
 
 
 def main() -> int:
@@ -154,12 +155,15 @@ def main() -> int:
         def start(self):
             if not self.save():
                 return
-            command = [sys.executable, "-m", "vision_control.app",
-                       "--camera-index", str(self.camera.value()),
-                       "--profile", str(USER_PROFILE)]
+            if getattr(sys, "frozen", False):
+                command = [sys.executable, "--controller"]
+            else:
+                command = [sys.executable, "-m", "vision_control.launcher", "--controller"]
+            command.extend(["--camera-index", str(self.camera.value()),
+                            "--profile", str(USER_PROFILE)])
             if self.start_paused.isChecked():
                 command.append("--start-paused")
-            subprocess.Popen(command, cwd=ROOT)
+            subprocess.Popen(command, cwd=Path.home() if getattr(sys, "frozen", False) else ROOT)
             self.close()
 
     app = QApplication(sys.argv)

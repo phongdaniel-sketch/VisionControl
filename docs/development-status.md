@@ -23,6 +23,10 @@
   including validated multi-key chords; fist remains reserved for arming.
 - Active monitor mode supports configurable point-pose edge dwell, spatial
   previous/next display switching, progress feedback, and a release latch.
+- A PyInstaller macOS Apple Silicon app bundle opens Settings and starts the
+  bundled camera controller without a separate Python installation.
+- Frozen builds use bundled read-only resources and OS-specific writable
+  application-data directories; the hand model is bundled for offline startup.
 - Deterministic unit tests cover profile validation, role swapping, debounce,
   held-key release, calibration mapping, and special key resolution.
 
@@ -35,9 +39,9 @@
 
 ## Next priorities
 
-1. Verify full camera, mouse, keyboard, multi-monitor, and permission flow on macOS.
-2. Verify permissions, camera, input, and DPI behavior on Windows 11.
-3. Package signed macOS and Windows builds.
+1. User acceptance-test the macOS `.app`, including Camera and Accessibility.
+2. Reduce prototype bundle size and add Developer ID signing/notarization.
+3. Build and verify permissions, camera, input, and DPI behavior on Windows 11.
 
 ## Run
 

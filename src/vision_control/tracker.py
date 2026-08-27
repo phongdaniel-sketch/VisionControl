@@ -4,8 +4,12 @@ class MediaPipeTracker:
         from urllib.request import urlopen
         from mediapipe.tasks.python.core.base_options import BaseOptions
         from mediapipe.tasks.python.vision import HandLandmarker, HandLandmarkerOptions, RunningMode
+        from .paths import resource_root, runtime_data_dir
         self.mp = __import__("mediapipe")
-        model = Path(model_path or Path(__file__).resolve().parents[2] / "models/hand_landmarker.task")
+        bundled_model = resource_root() / "assets" / "models" / "hand_landmarker.task"
+        model = Path(model_path) if model_path else bundled_model
+        if not model.exists():
+            model = runtime_data_dir() / "models" / "hand_landmarker.task"
         if not model.exists():
             model.parent.mkdir(parents=True, exist_ok=True)
             url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"

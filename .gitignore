@@ -6,4 +6,9 @@ __pycache__/
 data/captures/
 data/*.json
 models/
+!assets/models/
+!assets/models/**
 *.log
+build/
+dist/
+*.dmg
