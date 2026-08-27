@@ -79,6 +79,12 @@ one key (`space`) or a comma-separated shortcut (`ctrl, c`). A press shortcut is
 emitted as a chord; held keys are always released when the gesture ends, the app
 pauses, or keyboard mode is disarmed. The fist remains reserved for arming.
 
+In `active` monitor mode, point with the mouse hand and hold at the calibrated
+left or right camera edge to switch displays. The overlay shows dwell progress;
+move away from the edge before switching again. Settings controls whether this
+is enabled, the dwell duration, and the edge-zone width. `fixed` and `all` modes
+keep their existing behavior.
+
 The original CLI remains available and accepts a custom profile:
 
 ```bash

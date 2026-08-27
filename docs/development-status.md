@@ -21,6 +21,8 @@
   cursor, and scrolling preferences before launching VisionControl.
 - Settings configures left-hand gestures as Disabled, Press, or Hold actions,
   including validated multi-key chords; fist remains reserved for arming.
+- Active monitor mode supports configurable point-pose edge dwell, spatial
+  previous/next display switching, progress feedback, and a release latch.
 - Deterministic unit tests cover profile validation, role swapping, debounce,
   held-key release, calibration mapping, and special key resolution.
 
@@ -33,7 +35,7 @@
 
 ## Next priorities
 
-1. Add edge-dwell or gesture-based monitor switching for `active` mode.
+1. Verify full camera, mouse, keyboard, multi-monitor, and permission flow on macOS.
 2. Verify permissions, camera, input, and DPI behavior on Windows 11.
 3. Package signed macOS and Windows builds.
 

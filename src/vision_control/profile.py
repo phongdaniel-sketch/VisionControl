@@ -65,6 +65,10 @@ def load_profile(path: str | Path) -> Profile:
     for key in ("gesture_confidence", "pinch_close_ratio", "pinch_open_ratio"):
         if not 0 < float(thresholds.get(key, 0.5)) <= 1:
             raise ValueError(f"Invalid threshold: {key}")
+    edge_zone = float(thresholds.get("monitor_edge_zone", .08))
+    edge_dwell = float(thresholds.get("monitor_edge_dwell_seconds", .8))
+    if not 0 < edge_zone < .5 or edge_dwell <= 0:
+        raise ValueError("Invalid monitor edge switching settings")
     if arming.enabled and arming.gesture in bindings:
         raise ValueError("The arming gesture must not also have a key binding")
     return Profile(raw["mouse_hand"], raw["keyboard_hand"], bool(raw.get("swap_hands", False)),

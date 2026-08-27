@@ -30,6 +30,9 @@
     "cursor_deadzone_px": 2.0,
     "drag_hold_seconds": 0.4,
     "scroll_deadzone": 0.015,
-    "scroll_sensitivity": 45.0
+    "scroll_sensitivity": 45.0,
+    "monitor_edge_switch_enabled": true,
+    "monitor_edge_zone": 0.08,
+    "monitor_edge_dwell_seconds": 0.8
   }
 }

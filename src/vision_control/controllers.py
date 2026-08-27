@@ -4,7 +4,7 @@ import time
 from .calibration import MouseCalibration
 from .gestures import classify_static, finger_states, pinch
 from .input_adapter import InputAdapter
-from .monitors import MonitorLayout, ScreenRegion
+from .monitors import EdgeDwellSwitcher, MonitorLayout, ScreenRegion
 from .profile import Profile
 from .types import HandObservation
 
@@ -72,6 +72,11 @@ class MouseController:
         self.paused = True
         self.status = "paused"
         self.target_region = self.layout.regions[0]
+        self.edge_switcher = EdgeDwellSwitcher(
+            self.layout.regions,
+            float(self.profile.thresholds.get("monitor_edge_zone", .08)),
+            float(self.profile.thresholds.get("monitor_edge_dwell_seconds", .8)),
+        )
 
     def update(self, hand: HandObservation | None, frame_size=(640, 480)) -> None:
         if not hand or hand.confidence < .5:
@@ -88,6 +93,27 @@ class MouseController:
         states = finger_states(hand)
         scroll_pose = states == (True, True, False, False) and not left and not right
         now = time.monotonic()
+        cursor = self.adapter.position()
+        self.target_region = self.layout.target(cursor)
+        edge_switch_enabled = (
+            self.layout.mode == "active"
+            and bool(self.profile.thresholds.get("monitor_edge_switch_enabled", True))
+            and len(self.layout.regions) > 1
+        )
+        normalized_x = ((hand.landmarks[8][0] - self.calibration.left) /
+                        max(self.calibration.right - self.calibration.left, .01))
+        point_pose = states == (True, False, False, False) and not left and not right
+        switched = self.edge_switcher.update(
+            normalized_x, self.target_region, now,
+            active=edge_switch_enabled and point_pose,
+        )
+        if switched is not None:
+            center = (switched.x + switched.width / 2, switched.y + switched.height / 2)
+            self.adapter.move(*center)
+            self.target_region = switched
+            self.last = center
+            self.status = f"switched_{self.edge_switcher.pending_edge}"
+            return
 
         if scroll_pose:
             self._button("left", False, now); self._button("right", False, now)
@@ -103,8 +129,6 @@ class MouseController:
             return
 
         self.last_scroll_y = None
-        cursor = self.adapter.position()
-        self.target_region = self.layout.target(cursor)
         target = self.calibration.map_to_region(hand.landmarks[8][0], hand.landmarks[8][1], self.target_region)
         smoothing = self.profile.thresholds.get("cursor_smoothing", .35)
         if self.last is None:
@@ -125,6 +149,9 @@ class MouseController:
             self.status = self._pinch_status("right", now)
         else:
             self.status = "move"
+        if self.edge_switcher.progress > 0:
+            self.status = (f"switch_{self.edge_switcher.pending_edge}_"
+                           f"{int(self.edge_switcher.progress * 100)}%")
 
     def _button(self, button, active, now):
         attr = "left_down" if button == "left" else "right_down"
@@ -153,3 +180,4 @@ class MouseController:
         self.left_down = self.right_down = False
         self.pinch_started.clear()
         self.last_scroll_y = None
+        self.edge_switcher.reset()

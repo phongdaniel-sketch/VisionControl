@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from vision_control.controllers import GestureController, MouseController
 from vision_control.profile import GestureBinding, load_profile
@@ -11,7 +12,7 @@ from vision_control.calibration import CalibrationSession, MouseCalibration
 from vision_control.input_adapter import PynputInputAdapter
 from vision_control.roles import assign_roles
 from vision_control.types import HandsFrame
-from vision_control.monitors import MonitorLayout, ScreenRegion
+from vision_control.monitors import EdgeDwellSwitcher, MonitorLayout, ScreenRegion
 from vision_control.arming import ArmingController, ArmingSettings
 from vision_control.startup import StartupScreen
 from vision_control.settings import (DesktopSettings, load_desktop_settings,
@@ -135,6 +136,51 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(MonitorLayout(regions, "fixed", 1).target((-100, 500)).name, "main")
         union = MonitorLayout(regions, "all").target((0, 0))
         self.assertEqual((union.x, union.y, union.width, union.height), (-1920, 0, 4480, 1440))
+
+    def test_edge_dwell_switches_once_and_requires_center_release(self):
+        left = ScreenRegion(-1920, 0, 1920, 1080, "left")
+        main = ScreenRegion(0, 0, 2560, 1440, "main")
+        right = ScreenRegion(2560, -200, 1920, 1080, "right")
+        switcher = EdgeDwellSwitcher([right, left, main], edge_zone=.1, dwell_seconds=.8)
+        self.assertIsNone(switcher.update(.95, main, 0.0))
+        self.assertIsNone(switcher.update(.95, main, .4))
+        self.assertEqual(switcher.update(.95, main, .81), right)
+        self.assertIsNone(switcher.update(.95, right, 2.0))
+        self.assertIsNone(switcher.update(.5, right, 2.1))
+        self.assertIsNone(switcher.update(.05, right, 2.2))
+        self.assertEqual(switcher.update(.05, right, 3.01), main)
+
+    def test_edge_dwell_does_not_wrap_at_outer_display(self):
+        left = ScreenRegion(-1920, 0, 1920, 1080, "left")
+        main = ScreenRegion(0, 0, 2560, 1440, "main")
+        switcher = EdgeDwellSwitcher([main, left], edge_zone=.1, dwell_seconds=.5)
+        switcher.update(.05, left, 0.0)
+        self.assertIsNone(switcher.update(.05, left, .51))
+        self.assertTrue(switcher.latched)
+
+    def test_edge_dwell_requires_active_point_pose(self):
+        left = ScreenRegion(-1920, 0, 1920, 1080, "left")
+        main = ScreenRegion(0, 0, 2560, 1440, "main")
+        switcher = EdgeDwellSwitcher([left, main], edge_zone=.1, dwell_seconds=.5)
+        switcher.update(.95, left, 0.0, active=False)
+        self.assertIsNone(switcher.update(.95, left, 1.0, active=True))
+        self.assertEqual(switcher.progress, 0.0)
+
+    def test_mouse_edge_dwell_moves_cursor_to_next_display_center(self):
+        left = ScreenRegion(-1920, 0, 1920, 1080, "left")
+        main = ScreenRegion(0, 0, 2560, 1440, "main")
+        layout = MonitorLayout([left, main], "active")
+        adapter = RecordingInput(); adapter._position = (-500, 500)
+        controller = MouseController(adapter, self.profile, layout)
+        observation = hand((True, False, False, False), "Right")
+        points = list(observation.landmarks); points[8] = (.9, .3, 0)
+        observation = HandObservation("Right", tuple(points))
+        with patch("vision_control.controllers.time.monotonic", side_effect=(0.0, .81)):
+            controller.update(observation)
+            controller.update(observation)
+        self.assertEqual(adapter.events[-1], ("move", 1280.0, 720.0))
+        self.assertEqual(controller.target_region.name, "main")
+        self.assertEqual(controller.status, "switched_right")
 
     def test_special_key_names_are_resolved(self):
         adapter = object.__new__(PynputInputAdapter)

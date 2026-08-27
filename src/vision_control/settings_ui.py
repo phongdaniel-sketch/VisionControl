@@ -50,6 +50,9 @@ def main() -> int:
             self.smoothing = QDoubleSpinBox(); self.smoothing.setRange(.05, 1.0); self.smoothing.setSingleStep(.05); self.smoothing.setValue(float(profile.thresholds.get("cursor_smoothing", .35)))
             self.deadzone = QDoubleSpinBox(); self.deadzone.setRange(0, 30); self.deadzone.setSuffix(" px"); self.deadzone.setValue(float(profile.thresholds.get("cursor_deadzone_px", 2)))
             self.scroll = QDoubleSpinBox(); self.scroll.setRange(1, 200); self.scroll.setValue(float(profile.thresholds.get("scroll_sensitivity", 45)))
+            self.edge_switch = QCheckBox(); self.edge_switch.setChecked(bool(profile.thresholds.get("monitor_edge_switch_enabled", True)))
+            self.edge_dwell = QDoubleSpinBox(); self.edge_dwell.setRange(.3, 3.0); self.edge_dwell.setSingleStep(.1); self.edge_dwell.setSuffix(" s"); self.edge_dwell.setValue(float(profile.thresholds.get("monitor_edge_dwell_seconds", .8)))
+            self.edge_zone = QDoubleSpinBox(); self.edge_zone.setRange(2, 25); self.edge_zone.setSuffix(" %"); self.edge_zone.setValue(float(profile.thresholds.get("monitor_edge_zone", .08)) * 100)
 
             form = QFormLayout()
             form.addRow("Camera index", self.camera)
@@ -61,6 +64,9 @@ def main() -> int:
             form.addRow("Cursor smoothing", self.smoothing)
             form.addRow("Cursor deadzone", self.deadzone)
             form.addRow("Scroll sensitivity", self.scroll)
+            form.addRow("Edge-dwell monitor switching", self.edge_switch)
+            form.addRow("Monitor switch dwell", self.edge_dwell)
+            form.addRow("Monitor edge zone", self.edge_zone)
 
             gesture_labels = {
                 "point": "Point (index finger)",
@@ -104,10 +110,16 @@ def main() -> int:
             layout = QVBoxLayout(); layout.addLayout(form); layout.addWidget(gesture_group); layout.addWidget(note); layout.addLayout(buttons)
             container = QWidget(); container.setLayout(layout); self.setCentralWidget(container)
             self.monitor_mode.currentTextChanged.connect(self._update_monitor_state)
+            self.edge_switch.stateChanged.connect(self._update_monitor_state)
             self._update_monitor_state()
 
         def _update_monitor_state(self):
-            self.fixed_monitor.setEnabled(self.monitor_mode.currentText() == "fixed")
+            mode = self.monitor_mode.currentText()
+            self.fixed_monitor.setEnabled(mode == "fixed")
+            self.edge_switch.setEnabled(mode == "active")
+            edge_options_enabled = mode == "active" and self.edge_switch.isChecked()
+            self.edge_dwell.setEnabled(edge_options_enabled)
+            self.edge_zone.setEnabled(edge_options_enabled)
 
         def save(self):
             try:
@@ -121,6 +133,9 @@ def main() -> int:
                 raw.setdefault("thresholds", {})["cursor_smoothing"] = self.smoothing.value()
                 raw["thresholds"]["cursor_deadzone_px"] = self.deadzone.value()
                 raw["thresholds"]["scroll_sensitivity"] = self.scroll.value()
+                raw["thresholds"]["monitor_edge_switch_enabled"] = self.edge_switch.isChecked()
+                raw["thresholds"]["monitor_edge_dwell_seconds"] = self.edge_dwell.value()
+                raw["thresholds"]["monitor_edge_zone"] = self.edge_zone.value() / 100
                 selections = {
                     gesture: (action.currentText(), keys.text())
                     for gesture, (action, keys) in self.gesture_rows.items()

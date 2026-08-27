@@ -40,6 +40,67 @@ class MonitorLayout:
         return next((region for region in self.regions if region.contains(cursor)), self.regions[0])
 
 
+class EdgeDwellSwitcher:
+    def __init__(self, regions: list[ScreenRegion], edge_zone: float = .08,
+                 dwell_seconds: float = .8):
+        if not 0 < edge_zone < .5:
+            raise ValueError("edge_zone must be between zero and 0.5")
+        if dwell_seconds <= 0:
+            raise ValueError("dwell_seconds must be greater than zero")
+        self.regions = sorted(regions, key=lambda item: (
+            item.x + item.width / 2, item.y + item.height / 2))
+        self.edge_zone = edge_zone
+        self.dwell_seconds = dwell_seconds
+        self.pending_edge: str | None = None
+        self.started_at: float | None = None
+        self.latched = False
+        self.progress = 0.0
+
+    def update(self, normalized_x: float | None, current: ScreenRegion, now: float,
+               active: bool = True) -> ScreenRegion | None:
+        edge = None
+        if normalized_x is not None:
+            if normalized_x <= self.edge_zone:
+                edge = "left"
+            elif normalized_x >= 1.0 - self.edge_zone:
+                edge = "right"
+        if edge is None:
+            self.reset()
+            return None
+        if not active:
+            self.pending_edge = None
+            self.started_at = None
+            self.progress = 0.0
+            return None
+        if self.latched:
+            return None
+        if edge != self.pending_edge:
+            self.pending_edge = edge
+            self.started_at = now
+            self.progress = 0.0
+            return None
+        elapsed = max(0.0, now - (self.started_at if self.started_at is not None else now))
+        self.progress = min(1.0, elapsed / self.dwell_seconds)
+        if elapsed < self.dwell_seconds:
+            return None
+        self.latched = True
+        return self._adjacent(current, -1 if edge == "left" else 1)
+
+    def _adjacent(self, current: ScreenRegion, offset: int) -> ScreenRegion | None:
+        try:
+            index = self.regions.index(current)
+        except ValueError:
+            return None
+        target = index + offset
+        return self.regions[target] if 0 <= target < len(self.regions) else None
+
+    def reset(self) -> None:
+        self.pending_edge = None
+        self.started_at = None
+        self.latched = False
+        self.progress = 0.0
+
+
 def discover_monitors(mode: str = "active", fixed_index: int = 0) -> MonitorLayout:
     try:
         from screeninfo import get_monitors
