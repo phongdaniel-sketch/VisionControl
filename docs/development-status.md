@@ -14,7 +14,7 @@
 - Cursor movement has configurable smoothing and a pixel deadzone.
 - Left-hand fist hold toggles keyboard ARMED/DISARMED state with progress,
   release latch, cooldown, and automatic hand-loss disarm.
-- The supplied VisionControl logo is rendered as an RGBA overlay.
+- The camera view stays unobstructed; branding is limited to startup screens.
 - A branded splash screen and stage-driven loading screen are shown during startup.
 - Deterministic unit tests cover profile validation, role swapping, debounce,
   held-key release, calibration mapping, and special key resolution.

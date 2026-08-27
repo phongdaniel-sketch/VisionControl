@@ -40,7 +40,7 @@ def run(camera_index=0, start_paused=False):
         camera = Camera(index=camera_index)
         camera.open()
         startup.show_loading(1.0, "Ready", 250)
-        overlay = Overlay(cv2, root / "docs" / "Vision Control logo.png")
+        overlay = Overlay(cv2)
         calibration_session = CalibrationSession()
         paused = start_paused
         last_log = 0.0

@@ -56,8 +56,8 @@ fist is reserved for arming and cannot also be assigned to a key while arming is
 enabled. Timing and auto-disarm behavior are configurable under `arming` in the
 default profile.
 
-The application logo is stored at `docs/Vision Control logo.png` and rendered in
-the camera overlay.
+The application logo is stored at `docs/Vision Control logo.png`. The live camera
+view does not render a logo overlay so the hand-tracking area stays unobstructed.
 
 ## Splash and loading screens
 
