@@ -13,6 +13,7 @@ from vision_control.roles import assign_roles
 from vision_control.types import HandsFrame
 from vision_control.monitors import MonitorLayout, ScreenRegion
 from vision_control.arming import ArmingController, ArmingSettings
+from vision_control.startup import StartupScreen
 
 
 class RecordingInput:
@@ -182,6 +183,17 @@ class CoreTests(unittest.TestCase):
         controller.update("none", False, 2.0)
         self.assertEqual(controller.update("none", False, 4.01), "auto_disarmed")
         self.assertFalse(controller.armed)
+
+    def test_startup_assets_render_at_expected_size(self):
+        import cv2
+        root = Path(__file__).parents[1]
+        screen = StartupScreen(cv2, root / "docs/Splash Screen.png",
+                               root / "docs/Loading Screen.png")
+        empty = screen.render_loading(0.0, "Starting")
+        complete = screen.render_loading(1.0, "Ready")
+        self.assertEqual(empty.shape, (626, 1000, 3))
+        self.assertEqual(complete.shape, (626, 1000, 3))
+        self.assertNotEqual(int(empty.sum()), int(complete.sum()))
 
 
 if __name__ == "__main__": unittest.main()

@@ -12,26 +12,38 @@ from .overlay import Overlay
 from .roles import assign_roles
 from .monitors import discover_monitors
 from .gestures import classify_static
+from .startup import StartupCancelled, StartupScreen
 
 
 def run(camera_index=0, start_paused=False):
     import cv2
     root = Path(__file__).resolve().parents[2]
-    profile = load_profile(root / "config" / "default_profile.json")
-    adapter = PynputInputAdapter()
-    layout = discover_monitors(profile.monitor_mode, profile.fixed_monitor)
-    calibration_path = root / "data" / "mouse_calibration.json"
-    calibration = load_calibration(calibration_path)
-    mouse = MouseController(adapter, profile, layout, calibration)
-    keyboard = GestureController(adapter, profile)
-    arming = ArmingController(profile.arming)
-    camera, tracker = Camera(index=camera_index), MediaPipeTracker()
-    overlay = Overlay(cv2, root / "docs" / "Vision Control logo.png")
-    calibration_session = CalibrationSession()
-    paused = start_paused
-    last_log = 0.0
+    adapter = mouse = keyboard = camera = tracker = None
     try:
+        startup = StartupScreen(cv2, root / "docs" / "Splash Screen.png",
+                                root / "docs" / "Loading Screen.png")
+        startup.show_splash(1000)
+        startup.show_loading(.08, "Loading profile")
+        profile = load_profile(root / "config" / "default_profile.json")
+        startup.show_loading(.20, "Initializing input adapter")
+        adapter = PynputInputAdapter()
+        startup.show_loading(.32, "Detecting monitors")
+        layout = discover_monitors(profile.monitor_mode, profile.fixed_monitor)
+        calibration_path = root / "data" / "mouse_calibration.json"
+        calibration = load_calibration(calibration_path)
+        mouse = MouseController(adapter, profile, layout, calibration)
+        keyboard = GestureController(adapter, profile)
+        arming = ArmingController(profile.arming)
+        startup.show_loading(.52, "Loading hand tracking model")
+        tracker = MediaPipeTracker()
+        startup.show_loading(.82, "Opening camera")
+        camera = Camera(index=camera_index)
         camera.open()
+        startup.show_loading(1.0, "Ready", 250)
+        overlay = Overlay(cv2, root / "docs" / "Vision Control logo.png")
+        calibration_session = CalibrationSession()
+        paused = start_paused
+        last_log = 0.0
         while True:
             frame = camera.read()
             frame = cv2.flip(frame, 1)
@@ -104,10 +116,22 @@ def run(camera_index=0, start_paused=False):
             elif key in (ord("p"), ord("P")) and not calibration_session.active:
                 paused = not paused
                 if paused: mouse.release_all(); keyboard.release_keys(); arming.disarm()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, StartupCancelled):
         pass
+    except Exception as exc:
+        print(f"[startup] failed: {exc}", flush=True)
+        try:
+            startup.show_loading(1.0, f"Failed: {exc}", 1500)
+        except Exception:
+            pass
+        raise
     finally:
-        mouse.release_all(); keyboard.release_all(); adapter.release_all(); camera.close(); tracker.close(); cv2.destroyAllWindows()
+        if mouse is not None: mouse.release_all()
+        if keyboard is not None: keyboard.release_all()
+        if adapter is not None: adapter.release_all()
+        if camera is not None: camera.close()
+        if tracker is not None: tracker.close()
+        cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":

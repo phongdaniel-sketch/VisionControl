@@ -59,6 +59,17 @@ default profile.
 The application logo is stored at `docs/Vision Control logo.png` and rendered in
 the camera overlay.
 
+## Splash and loading screens
+
+Startup uses two 1586×992 source assets, displayed at 1000×626 to preserve their
+aspect ratio:
+
+- `docs/Splash Screen.png`: shown first for one second without a loading bar.
+- `docs/Loading Screen.png`: shown while profile, input, monitors, MediaPipe, and
+  camera initialize; its progress bar and status reflect real startup stages.
+
+Press `Esc` during startup to cancel safely.
+
 ## Safety
 
 Keep the emergency stop available. The application releases all held mouse buttons and keys on pause, camera failure, normal exit, and exceptions. Camera frames are processed locally and are not uploaded.
