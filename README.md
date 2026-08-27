@@ -2,6 +2,9 @@
 
 Local-first webcam control: right hand for mouse input, left hand for configurable keyboard gestures.
 
+When resuming development in a new VS Code workspace, read
+[`docs/workspace-handoff.md`](docs/workspace-handoff.md) first.
+
 ## MVP status
 
 The deterministic controller core is implemented. Webcam runtime requires Python dependencies from `requirements.txt` and a Windows input permission setup.
