@@ -4,10 +4,10 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QCloseEvent, QIcon, QImage, QKeyEvent, QPixmap
+from PySide6.QtGui import QCloseEvent, QIcon, QImage, QKeyEvent, QPixmap, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
-    QMessageBox, QPushButton, QVBoxLayout, QWidget,
+    QMessageBox, QPushButton, QVBoxLayout, QWidget, QComboBox,
 )
 
 from .paths import resource_root
@@ -16,6 +16,7 @@ from .settings import EDITABLE_GESTURES, load_desktop_settings
 from .settings_ui import APP_SETTINGS, USER_PROFILE, SettingsWindow
 from .startup import StartupScreen
 from .ui_theme import APP_STYLE, humanize
+from .controller_labels import POSE_HELP, display_name, mouse_guide
 
 
 ROOT = resource_root()
@@ -29,10 +30,14 @@ class ControllerWindow(QMainWindow):
         self.runtime_factory = runtime_factory
         self.settings_factory = settings_factory
         self.settings_window = None
+        self.diagnostic_window = None
         self.frame_error = None
         self.closing = False
         self.last_frame_time = None
+        self.last_status_time = 0.
         self.smoothed_fps = 0.0
+        self.capture_deadline = None
+        self.calibration_feedback = ""
         self.setWindowTitle("VisionControl")
         self.resize(1280, 780)
         self.setMinimumSize(960, 640)
@@ -46,6 +51,13 @@ class ControllerWindow(QMainWindow):
         self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self._process_frame)
         self.timer.start(16)
+        self.shortcuts = []
+        for key, callback in [('C', self.start_calibration), ('Space', self.space_action),
+                              ('R', self.cancel_calibration), ('P', self.toggle_pause)]:
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.setAutoRepeat(False)
+            shortcut.activated.connect(callback)
+            self.shortcuts.append(shortcut)
 
     def _build_ui(self):
         root = QWidget()
@@ -73,13 +85,42 @@ class ControllerWindow(QMainWindow):
         header.addSpacing(18)
         header.addWidget(self.fps_label)
         layout.addLayout(header)
+        debug_row = QHBoxLayout()
+        self.calibration_view_button = QPushButton('Show calibration area')
+        self.calibration_view_button.setCheckable(True)
+        self.calibration_view_button.setToolTip('Preview the saved mapping area; does not change calibration.')
+        self.debug_button = QPushButton('Debug recording')
+        self.debug_button.setEnabled(False)
+        self.debug_button.clicked.connect(self.open_diagnostics)
+        self.debug_toggle = QPushButton('Debug: Off')
+        self.debug_toggle.setCheckable(True)
+        self.debug_toggle.toggled.connect(self.toggle_debug)
+        self.skeleton_toggle = QPushButton('Skeleton: On')
+        self.skeleton_toggle.setCheckable(True)
+        self.skeleton_toggle.setChecked(True)
+        self.skeleton_toggle.toggled.connect(self.toggle_skeleton)
+        self.guide_toggle = QPushButton('Guide: On')
+        self.guide_toggle.setCheckable(True)
+        self.guide_toggle.setChecked(True)
+        self.guide_toggle.toggled.connect(self.toggle_guide)
+        self.timing_label = QLabel('')
+        self.timing_label.setObjectName('muted')
+        self.timing_label.hide()
+        debug_row.addWidget(self.calibration_view_button)
+        debug_row.addWidget(self.skeleton_toggle)
+        debug_row.addWidget(self.guide_toggle)
+        debug_row.addWidget(self.debug_button)
+        debug_row.addWidget(self.debug_toggle)
+        debug_row.addStretch()
+        layout.addLayout(debug_row)
+        layout.addWidget(self.timing_label)
 
         content = QHBoxLayout()
         content.setSpacing(10)
-        left_card, left = self._card("STATUS", 210)
+        left_card, left = self._card("STATUS", 235)
         self.status_mode = self._status_row(left, "Controller", "PAUSED")
         self.status_hand = self._status_row(left, "Mouse hand", "--")
-        self.status_gesture = self._status_row(left, "Gesture", "--")
+        self.status_gesture = self._status_row(left, "Mouse pose", "--")
         self.status_action = self._status_row(left, "Mouse action", "--")
         left.addSpacing(8)
         divider = QFrame()
@@ -87,6 +128,7 @@ class ControllerWindow(QMainWindow):
         divider.setStyleSheet("color: #253249")
         left.addWidget(divider)
         self.status_keyboard = self._status_row(left, "Keyboard", "DISARMED")
+        self.status_keyboard_pose = self._status_row(left, "Key pose", "--")
         self.status_monitor = self._status_row(left, "Display", "--")
         left.addStretch()
         hint = QLabel("P Pause · C Calibrate\nEsc Exit")
@@ -115,17 +157,39 @@ class ControllerWindow(QMainWindow):
         camera_layout.addWidget(self.camera_label, 1)
         camera_layout.addWidget(self.gesture_badge)
         camera_layout.addWidget(self.help_label)
+        self.calibration_panel = QWidget()
+        calibration_layout = QVBoxLayout(self.calibration_panel)
+        self.calibration_instruction = QLabel()
+        self.calibration_instruction.setWordWrap(True)
+        self.calibration_instruction.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.calibration_instruction.setStyleSheet("color: #ffbc75; font-size: 14px")
+        calibration_layout.addWidget(self.calibration_instruction)
+        capture_row = QHBoxLayout()
+        self.capture_button = QPushButton("Capture in 3 seconds")
+        self.capture_button.clicked.connect(self.schedule_capture)
+        self.cancel_calibration_button = QPushButton("Cancel calibration")
+        self.cancel_calibration_button.clicked.connect(self.cancel_calibration)
+        capture_row.addWidget(self.capture_button)
+        capture_row.addWidget(self.cancel_calibration_button)
+        calibration_layout.addLayout(capture_row)
+        camera_layout.addWidget(self.calibration_panel)
+        self.calibration_panel.hide()
         content.addWidget(camera_card, 1)
 
-        guide_card, guide = self._card("GESTURE GUIDE", 220)
+        guide_card, guide = self._card("GESTURE GUIDE", 260)
+        self.guide_card = guide_card
+        self.guide_selector = QComboBox()
+        self.guide_selector.addItems(["Mouse hand", "Keyboard hand"])
+        self.guide_selector.currentIndexChanged.connect(self._refresh_static_runtime_labels)
+        guide.addWidget(self.guide_selector)
         self.guide_grid = QGridLayout()
         self.guide_grid.setSpacing(8)
         guide.addLayout(self.guide_grid)
+        self.guide_note = QLabel()
+        self.guide_note.setObjectName("muted")
+        self.guide_note.setWordWrap(True)
+        guide.addWidget(self.guide_note)
         guide.addStretch()
-        note = QLabel("Fist is reserved for keyboard arm/disarm")
-        note.setObjectName("muted")
-        note.setWordWrap(True)
-        guide.addWidget(note)
         content.addWidget(guide_card)
         layout.addLayout(content, 1)
 
@@ -134,6 +198,7 @@ class ControllerWindow(QMainWindow):
         self.pause_button = QPushButton("Pause")
         self.pause_button.setObjectName("danger")
         self.pause_button.clicked.connect(self.toggle_pause)
+        self.pause_button.setToolTip('Space or P: Pause/Resume while this window is focused. During calibration, Space captures a boundary.')
         self.pause_button.setMinimumWidth(190)
         self.mouse_button = QPushButton("Mouse · Active")
         self.mouse_button.setEnabled(False)
@@ -144,10 +209,13 @@ class ControllerWindow(QMainWindow):
         self.voice_button.setToolTip("Voice control is planned for a future release")
         self.settings_button = QPushButton("Settings")
         self.settings_button.clicked.connect(self.open_settings)
+        self.calibrate_button = QPushButton("Calibrate")
+        self.calibrate_button.clicked.connect(self.start_calibration)
         controls.addWidget(self.pause_button)
         controls.addWidget(self.mouse_button, 1)
         controls.addWidget(self.keyboard_button, 1)
         controls.addWidget(self.voice_button, 1)
+        controls.addWidget(self.calibrate_button)
         controls.addWidget(self.settings_button, 1)
         layout.addLayout(controls)
         self.setCentralWidget(root)
@@ -172,6 +240,7 @@ class ControllerWindow(QMainWindow):
         label.setObjectName("muted")
         metric = QLabel(value)
         metric.setObjectName("metric")
+        metric.setWordWrap(True)
         metric.setAlignment(Qt.AlignmentFlag.AlignRight)
         row.addWidget(label)
         row.addWidget(metric, 1)
@@ -181,21 +250,57 @@ class ControllerWindow(QMainWindow):
     def _refresh_static_runtime_labels(self):
         profile = self.runtime.profile
         self.status_hand.setText(profile.mouse_hand)
+        self.guide_selector.setItemText(0, f"Mouse hand · {profile.mouse_hand}")
+        self.guide_selector.setItemText(1, f"Keyboard hand · {profile.keyboard_hand}")
         while self.guide_grid.count():
             item = self.guide_grid.takeAt(0)
             if item.widget() is not None:
                 item.widget().deleteLater()
-        for index, gesture in enumerate(EDITABLE_GESTURES):
-            binding = profile.bindings.get(gesture)
-            action = "Disabled"
-            if binding:
-                keys = "+".join(binding.keys).upper()
-                action = f"{binding.action_type.title()} · {keys}"
+        if self.guide_selector.currentIndex() == 0:
+            entries = mouse_guide(profile)
+            self.guide_note.setText(
+                "Clicks: lock first, curl → straighten.\nFist + thumb tucked: stop."
+                if profile.pointer_mode == 'thumb_lock' else
+                "Keep the hand visible. Hold a pinch to drag; open it to release. "
+                "Edit actions in Settings → Gestures → Mouse hand.")
+        else:
+            entries = []
+            for gesture in EDITABLE_GESTURES:
+                binding = profile.bindings.get(gesture)
+                action = (f"{'Hold' if binding.action_type == 'hold' else 'Press once'}: "
+                          f"{'+'.join(binding.keys).upper()}" if binding else "Disabled")
+                entries.append((humanize(gesture), f"{POSE_HELP[gesture]}\n{action}"))
+            self.guide_note.setText(
+                "Shortcuts work while ACTIVE. Pause stops input. "
+                "Fist no longer toggles keyboard control.")
+        if profile.gesture_v1.get('enabled'):
+            cfg = profile.gesture_v1
+            if self.guide_selector.currentIndex() == 0:
+                palm_mode = profile.pointer_mode == 'palm'
+                entries = [('Move' if palm_mode else 'Move / lock',
+                            'Follow palm; open thumb does not lock' if palm_mode else 'Thumb tucked / thumb open'),
+                           ('Click with thumb open' if palm_mode else 'Click while locked', 'Curl → extend: index = left; middle = middle; both = right'),
+                           ('Drag', 'Apart → pinch; move palm; apart to drop')]
+                if cfg['scroll']:
+                    entries.append(('Scroll', 'Thumb open, four fingers together; move hand.'))
+                if cfg['zoom']:
+                    entries.append(('Zoom', 'Spread → gather: in; gather → spread: out.'))
+                if cfg['volume']:
+                    entries.append(('Volume', 'Fingers toward camera; rotate clockwise: up.'))
+                assigned = [name.replace('_', ' ') for name, action in cfg['symbols'].items() if action]
+                self.guide_note.setText(('Thumb open enables clicks; palm keeps moving. ' if palm_mode else 'Clicks require lock. ') + ('Symbols: ' + ', '.join(assigned) if assigned else 'Assign symbols/corners in Gestures Settings.'))
+            else:
+                entries = [('Ctrl', 'Hold fist'), ('Shift', 'Five fingers straight and together'),
+                           ('Alt', 'Thumb + index touching')]
+                entries += [(f'{n} fingers', binding['keys'].upper()) for n, binding in cfg['bindings'].items()]
+                self.guide_note.setText(f"Hold modifiers {cfg['modifier_seconds']:g}s. Release pose to release key. Second hand can be disabled in Settings.")
+        for index, (title, action) in enumerate(entries):
             tile = QFrame()
             tile.setObjectName("card")
             tile_layout = QVBoxLayout(tile)
-            tile_layout.setContentsMargins(8, 8, 8, 8)
-            gesture_name = QLabel(humanize(gesture))
+            tile_layout.setContentsMargins(6, 5, 6, 5)
+            tile_layout.setSpacing(3)
+            gesture_name = QLabel(title)
             gesture_name.setWordWrap(True)
             gesture_name.setStyleSheet("font-size: 12px; font-weight: 600")
             tile_layout.addWidget(gesture_name)
@@ -203,13 +308,22 @@ class ControllerWindow(QMainWindow):
             detail.setObjectName("muted")
             detail.setWordWrap(True)
             tile_layout.addWidget(detail)
-            self.guide_grid.addWidget(tile, index // 2, index % 2)
+            self.guide_grid.addWidget(tile, index, 0)
 
     def _process_frame(self):
         try:
             snapshot = self.runtime.process_frame()
-            self._render_frame(snapshot.frame)
-            self._render_status(snapshot)
+            if hasattr(self.runtime,'cursor_tick'):self.runtime.cursor_tick()
+            if snapshot is None:return
+            frame = snapshot.frame
+            if self.calibration_view_button.isChecked():
+                from .overlay import Overlay
+                import cv2
+                frame = Overlay(cv2).draw_calibration(frame.copy(), self.runtime.mouse.calibration)
+            self._render_frame(frame)
+            if time.monotonic()-self.last_status_time >= .1 or self.runtime.calibration_session.active:
+                self._render_status(snapshot)
+                self.last_status_time = time.monotonic()
         except Exception as exc:
             self.show_runtime_error(exc)
 
@@ -226,9 +340,12 @@ class ControllerWindow(QMainWindow):
         self.tracking_label.setText("○ TRACKING · STOPPED")
         self.tracking_label.setStyleSheet("color: #ff9b70; font-weight: 700")
         self.help_label.setText(
-            f"{exc}\nAllow Camera access if macOS asks, then open Settings and Save to retry.")
+            f"{exc}\nCheck camera access and device index, then open Settings and Save to retry.")
         self.pause_button.setText("Paused safely")
         self.pause_button.setEnabled(False)
+        self.capture_deadline = None
+        self.calibration_panel.hide()
+        self.calibrate_button.setEnabled(False)
         QMessageBox.critical(
             self, "VisionControl paused safely",
             f"Camera processing could not continue, but the app will remain open.\n\n"
@@ -252,28 +369,46 @@ class ControllerWindow(QMainWindow):
         self.last_frame_time = now
 
     def _render_status(self, snapshot):
+        timings = getattr(snapshot, 'timings_ms', {})
+        self.timing_label.setText(' · '.join(
+            f'{name}: {timings[key]:.0f} ms' for key, name in
+            [('camera_read', 'Camera read'), ('tracking', 'Tracking'),
+             ('result_age', 'Frame age'), ('runtime_total', 'Stage total')]
+            if key in timings))
         mode = "PAUSED" if snapshot.paused else "ACTIVE"
         self.status_mode.setText(mode)
-        self.status_gesture.setText(humanize(snapshot.gesture))
-        self.status_action.setText(snapshot.mouse_status.replace("_", " ").title())
-        self.status_keyboard.setText(snapshot.keyboard_state)
-        self.status_monitor.setText(snapshot.monitor_name)
+        self.status_hand.setText(f"{snapshot.mouse_role} · {'Seen' if snapshot.mouse_found else 'Missing'}")
+        self.status_gesture.setText(humanize(getattr(snapshot, 'mouse_pose', 'none')))
+        self.status_action.setText('Input paused' if snapshot.paused else
+                                   snapshot.mouse_status.replace('_', ' ').title())
+        keyboard_status = 'Paused' if snapshot.paused else ('Active' if snapshot.keyboard_found else 'No hand')
+        if self.runtime.profile.gesture_v1.get('enabled') and not snapshot.paused:
+            keyboard_status = snapshot.keyboard_state
+        self.status_keyboard.setText(keyboard_status)
+        self.status_keyboard_pose.setText(humanize(getattr(snapshot, 'keyboard_pose', 'none')))
+        self.status_keyboard_pose.setToolTip(f"Detected pose on the {snapshot.keyboard_role.lower()} hand")
+        self.status_monitor.setText(display_name(snapshot.monitor_name))
+        self.status_monitor.setToolTip(f"{self.runtime.profile.monitor_mode.title()} mode · {snapshot.monitor_name}")
         mouse_found = "Detected" if snapshot.mouse_found else "Not detected"
         self.mouse_button.setText(f"Mouse · {mouse_found}")
-        self.keyboard_button.setText(f"Keyboard · {snapshot.keyboard_state}")
+        self.keyboard_button.setText(f"Keyboard · {keyboard_status}")
         progress = (f" · {int(snapshot.arming_progress * 100)}%"
                     if snapshot.arming_progress else "")
-        self.gesture_badge.setText(
-            f"{humanize(snapshot.gesture).upper()} · {mode}{progress}")
-        self.help_label.setText(snapshot.help_text)
+        self.gesture_badge.setText('PAUSED · Press Resume to control' if snapshot.paused else
+                                  f"ACTIVE · Mouse: {humanize(getattr(snapshot, 'mouse_pose', 'none'))}{progress}")
+        self.help_label.setText(self.calibration_feedback or snapshot.help_text)
         self.tracking_label.setText(
             "● TRACKING" if snapshot.hands else "○ TRACKING · NO HANDS")
         self.tracking_label.setStyleSheet(
             "color: #59d36b; font-weight: 700" if snapshot.hands else
             "color: #f0a54a; font-weight: 700")
         self._update_pause_button()
+        self._update_calibration(snapshot)
 
     def _update_pause_button(self):
+        desired = "Resume" if self.runtime.paused else "Pause"
+        if self.pause_button.text() == desired:
+            return
         if self.runtime.paused:
             self.pause_button.setText("Resume")
             self.pause_button.setObjectName("primary")
@@ -284,10 +419,100 @@ class ControllerWindow(QMainWindow):
         self.pause_button.style().polish(self.pause_button)
 
     def toggle_pause(self):
+        if (self.frame_error is not None or self.settings_window is not None or
+                not self.runtime.started or self.runtime.calibration_session.active):
+            return
         self.runtime.toggle_paused()
         self._update_pause_button()
 
+    def space_action(self):
+        if self.runtime.calibration_session.active:
+            self.capture_calibration()
+        else:
+            self.toggle_pause()
+
+    def start_calibration(self):
+        if not getattr(self.runtime, 'started', False) or self.settings_window is not None:
+            return
+        self.capture_deadline = None
+        self.calibration_feedback = ''
+        self.runtime.start_calibration()
+        self._update_pause_button()
+        self._update_calibration(self.runtime.last_snapshot)
+
+    def schedule_capture(self):
+        session = self.runtime.calibration_session
+        if session.active and self.capture_deadline is None:
+            self.calibration_feedback = ''
+            self.capture_deadline = time.monotonic() + 3
+
+    def capture_calibration(self):
+        session = getattr(self.runtime, 'calibration_session', None)
+        if session is None or not session.active:
+            return
+        self.capture_deadline = None
+        before = session.index
+        try:
+            complete = self.runtime.capture_calibration()
+            if complete:
+                self.calibration_feedback = 'Calibration saved locally. Ready for next launch. Press Resume to test.'
+            elif session.index == before:
+                self.calibration_feedback = ('Mouse hand not detected clearly. Keep the whole hand visible; '
+                                             'check Mouse hand / Swap hands in Settings if needed.')
+            else:
+                self.calibration_feedback = 'Boundary captured. Move to the next edge.'
+        except Exception as exc:
+            self.calibration_feedback = f'Not saved: {exc} Retry this step, or Cancel to keep the previous calibration.'
+        self.help_label.setText(self.calibration_feedback)
+        self._update_calibration(self.runtime.last_snapshot)
+
+    def cancel_calibration(self):
+        session = getattr(self.runtime, 'calibration_session', None)
+        if session is None or not session.active:
+            return
+        self.capture_deadline = None
+        self.runtime.cancel_calibration()
+        self.calibration_feedback = 'Calibration cancelled. Previous calibration kept. Controller stays paused.'
+        self.help_label.setText(self.calibration_feedback)
+        self._update_calibration(self.runtime.last_snapshot)
+
+    def _update_calibration(self, snapshot):
+        session = getattr(self.runtime, 'calibration_session', None)
+        active = session is not None and session.active
+        self.calibration_panel.setVisible(active)
+        self.calibrate_button.setEnabled(not active and self.frame_error is None)
+        self.pause_button.setEnabled(not active and self.frame_error is None)
+        if not active:
+            return
+        self.status_mode.setText('CALIBRATING')
+        self.gesture_badge.setText('CALIBRATION · Mouse and keyboard input paused')
+        found = snapshot is not None and snapshot.mouse_found
+        directions = {'left': 'LEFT ←', 'right': 'RIGHT →', 'top': 'TOP ↑', 'bottom': 'BOTTOM ↓'}
+        instruction = (f'Step {session.index + 1}/4 · {directions[session.stage]} edge of the preview\n'
+                       f'Move your {self.runtime.profile.mouse_hand.lower()} {"palm center" if self.runtime.profile.pointer_mode == "palm" else "index fingertip"} to a comfortable '
+                       'boundary. Keep the hand visible. Press Space, or use the countdown button.')
+        if not found:
+            instruction += '\nMouse hand missing — check the selected hand and camera view.'
+        self.calibration_instruction.setText(instruction)
+        self.capture_button.setEnabled(found and self.capture_deadline is None)
+        if self.capture_deadline is not None:
+            if not found:
+                self.capture_deadline = None
+                self.calibration_feedback = 'Countdown cancelled: mouse hand lost. Show the hand and try again.'
+                self.help_label.setText(self.calibration_feedback)
+            else:
+                remaining = self.capture_deadline - time.monotonic()
+                if remaining <= 0:
+                    self.capture_calibration()
+                    return
+                self.capture_button.setText(f'Hold at this edge · {remaining:.1f}s')
+                return
+        self.capture_button.setText('Capture in 3 seconds')
+
     def open_settings(self):
+        if self.diagnostic_window is not None:
+            return
+        self.cancel_calibration()
         self.runtime.set_paused(True)
         self._update_pause_button()
         self.timer.stop()
@@ -299,6 +524,59 @@ class ControllerWindow(QMainWindow):
         self.settings_window.settings_saved.connect(self._reload_after_settings)
         self.settings_window.destroyed.connect(self._settings_closed)
         self.settings_window.show()
+
+    def open_diagnostics(self):
+        if self.diagnostic_window is not None or self.settings_window is not None:
+            return
+        from .diagnostics import DiagnosticInputAdapter
+        from .diagnostics_ui import DiagnosticWindow
+        self.cancel_calibration()
+        self.timer.stop()
+        self.runtime.set_paused(True)
+        self.runtime.close()
+        self._update_pause_button()
+        try:
+            diagnostic_runtime = VisionRuntime(self.runtime.camera_index, True,
+                self.runtime.profile_path, adapter_factory=DiagnosticInputAdapter)
+            self.diagnostic_window = DiagnosticWindow(diagnostic_runtime)
+            self.diagnostic_window.closed.connect(self._diagnostics_closed)
+            self.diagnostic_window.show()
+            self.help_label.setText('Controller paused. Close Debug recording to return here.')
+        except Exception:
+            self._diagnostics_closed()
+            raise
+
+    def _diagnostics_closed(self):
+        self.diagnostic_window = None
+        if self.closing:
+            return
+        try:
+            self.runtime.set_paused(True)
+            self.runtime.start()
+            self.frame_error = None
+            self.pause_button.setEnabled(True)
+            self.last_frame_time = None
+            self.smoothed_fps = 0
+            self._update_pause_button()
+            self.timer.start(16)
+        except Exception as exc:
+            self.show_runtime_error(exc)
+
+    def toggle_skeleton(self, enabled):
+        self.runtime.landmarks_enabled = enabled
+        self.skeleton_toggle.setText('Skeleton: On' if enabled else 'Skeleton: Off')
+
+    def toggle_guide(self, enabled):
+        self.guide_card.setVisible(enabled)
+        self.guide_toggle.setText('Guide: On' if enabled else 'Guide: Off')
+
+    def toggle_debug(self, enabled):
+        self.runtime.debug_enabled = enabled
+        self.debug_toggle.setText('Debug: On' if enabled else 'Debug: Off')
+        self.debug_button.setEnabled(enabled)
+        self.timing_label.setVisible(enabled)
+        if not enabled and self.diagnostic_window is not None:
+            self.diagnostic_window.close()
 
     def _settings_closed(self):
         self.settings_window = None
@@ -313,10 +591,14 @@ class ControllerWindow(QMainWindow):
         self.runtime.set_paused(True)
         self.runtime.close()
         desktop = load_desktop_settings(APP_SETTINGS)
-        profile_path = USER_PROFILE if USER_PROFILE.exists() else None
+        profile_path = USER_PROFILE if USER_PROFILE.exists() else ROOT / 'config' / 'gesture_v1_profile.json'
         try:
             self.runtime = self.runtime_factory(
                 desktop.camera_index, True, profile_path)
+            if isinstance(self.runtime, VisionRuntime):
+                self.runtime.async_mode = True
+                self.runtime.debug_enabled = self.debug_toggle.isChecked()
+                self.runtime.landmarks_enabled = self.skeleton_toggle.isChecked()
             self.runtime.start()
             self.frame_error = None
             self.last_frame_time = None
@@ -324,30 +606,34 @@ class ControllerWindow(QMainWindow):
             self.fps_label.setText("Processing · -- FPS")
             self._refresh_static_runtime_labels()
             self.pause_button.setEnabled(True)
+            self.calibrate_button.setEnabled(True)
             self._update_pause_button()
             self.timer.start(16)
         except Exception as exc:
-            QMessageBox.critical(self, "Cannot apply settings", str(exc))
-            self.close()
+            self.show_runtime_error(exc)
 
     def keyPressEvent(self, event: QKeyEvent):
+        if event.isAutoRepeat():
+            return
         key = event.key()
         if key == Qt.Key.Key_Escape:
             self.close()
         elif key == Qt.Key.Key_P:
             self.toggle_pause()
         elif key == Qt.Key.Key_C:
-            self.runtime.start_calibration()
+            self.start_calibration()
         elif key == Qt.Key.Key_Space:
-            self.runtime.capture_calibration()
+            self.space_action()
         elif key == Qt.Key.Key_R:
-            self.runtime.cancel_calibration()
+            self.cancel_calibration()
         else:
             super().keyPressEvent(event)
 
     def closeEvent(self, event: QCloseEvent):
         self.closing = True
         self.timer.stop()
+        if self.diagnostic_window is not None:
+            self.diagnostic_window.close()
         self.runtime.close()
         if self.settings_window is not None:
             self.settings_window.close()
@@ -367,7 +653,7 @@ def main(argv=None) -> int:
     desktop = load_desktop_settings(APP_SETTINGS)
     camera_index = desktop.camera_index if args.camera_index is None else args.camera_index
     start_paused = desktop.start_paused or args.start_paused
-    profile_path = args.profile or (USER_PROFILE if USER_PROFILE.exists() else None)
+    profile_path = args.profile or (USER_PROFILE if USER_PROFILE.exists() else ROOT / 'config' / 'gesture_v1_profile.json')
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("VisionControl")
@@ -377,7 +663,7 @@ def main(argv=None) -> int:
     app.setStyleSheet(APP_STYLE)
     icon = QIcon(str(ROOT / "docs" / "Vision Control logo.png"))
     app.setWindowIcon(icon)
-    runtime = VisionRuntime(camera_index, start_paused, profile_path)
+    runtime = VisionRuntime(camera_index, start_paused, profile_path, async_mode=True)
     window = None
     try:
         import cv2

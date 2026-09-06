@@ -1,8 +1,9 @@
 import json
 import os
 import re
+import sys
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .profile import ALLOWED_KEYS, load_profile
@@ -19,7 +20,7 @@ EDITABLE_GESTURES = (
 
 @dataclass(frozen=True)
 class DesktopSettings:
-    camera_index: int = 1
+    camera_index: int = field(default_factory=lambda: 0 if sys.platform == "win32" else 1)
     start_paused: bool = False
 
 
@@ -29,7 +30,7 @@ def load_desktop_settings(path: str | Path) -> DesktopSettings:
         return DesktopSettings()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-        camera_index = int(raw.get("camera_index", 1))
+        camera_index = int(raw.get("camera_index", DesktopSettings().camera_index))
         if camera_index < 0:
             raise ValueError("Camera index must be zero or greater")
         return DesktopSettings(camera_index, bool(raw.get("start_paused", False)))

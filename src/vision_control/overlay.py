@@ -44,3 +44,30 @@ class Overlay:
                 self.cv2.circle(frame, point, 6, (255, 125, 45), 1,
                                 self.cv2.LINE_AA)
         return frame
+
+    def draw_fingertip(self, frame, hand):
+        if len(hand.landmarks) < 21:
+            return frame
+        height, width = frame.shape[:2]
+        x, y, _ = hand.landmarks[8]
+        point = (int(x * width), int(y * height))
+        self.cv2.circle(frame, point, 12, (0, 230, 255), 3, self.cv2.LINE_AA)
+        self.cv2.circle(frame, point, 3, (0, 230, 255), -1, self.cv2.LINE_AA)
+        tx, ty, _ = hand.landmarks[4]
+        thumb = (int(tx * width), int(ty * height))
+        self.cv2.circle(frame, thumb, 10, (255, 220, 0), 2, self.cv2.LINE_AA)
+        self.cv2.putText(frame, 'I8', (point[0]+10, point[1]-10),
+                         self.cv2.FONT_HERSHEY_SIMPLEX, .45, (0,230,255), 1)
+        self.cv2.putText(frame, 'T4', (thumb[0]+10, thumb[1]+18),
+                         self.cv2.FONT_HERSHEY_SIMPLEX, .45, (255,220,0), 1)
+        return frame
+
+    def draw_calibration(self, frame, calibration):
+        height, width = frame.shape[:2]
+        left, right = [round(v * (width - 1)) for v in (calibration.left, calibration.right)]
+        top, bottom = [round(v * (height - 1)) for v in (calibration.top, calibration.bottom)]
+        color = (80, 230, 80)
+        self.cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
+        self.cv2.line(frame, ((left+right)//2, top), ((left+right)//2, bottom), color, 1)
+        self.cv2.line(frame, (left, (top+bottom)//2), (right, (top+bottom)//2), color, 1)
+        return frame

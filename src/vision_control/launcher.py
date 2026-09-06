@@ -2,6 +2,9 @@ import sys
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "--diagnostics":
+        from vision_control.diagnostics_ui import main as diagnostics_main
+        return diagnostics_main(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "--settings":
         from vision_control.settings_ui import main as settings_main
         return settings_main()

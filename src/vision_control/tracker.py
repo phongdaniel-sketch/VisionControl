@@ -16,18 +16,21 @@ class MediaPipeTracker:
             with urlopen(url, timeout=30) as response: model.write_bytes(response.read())
         options = HandLandmarkerOptions(base_options=BaseOptions(model_asset_path=str(model),
                                                                  delegate=BaseOptions.Delegate.CPU),
-                                        running_mode=RunningMode.IMAGE, num_hands=max_hands,
+                                        running_mode=RunningMode.VIDEO, num_hands=max_hands,
                                         min_hand_detection_confidence=.6,
                                         min_hand_presence_confidence=.6,
                                         min_tracking_confidence=.6)
         self.landmarker = HandLandmarker.create_from_options(options)
+        self.last_timestamp_ms = -1
 
     def track(self, frame, timestamp=0):
         import cv2
         from .types import HandObservation, HandsFrame
         image = self.mp.Image(image_format=self.mp.ImageFormat.SRGB,
                               data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        result = self.landmarker.detect(image)
+        timestamp_ms = max(self.last_timestamp_ms + 1, int(timestamp * 1000))
+        self.last_timestamp_ms = timestamp_ms
+        result = self.landmarker.detect_for_video(image, timestamp_ms)
         hands = []
         for landmarks, handedness in zip(result.hand_landmarks or [], result.handedness or []):
             points = tuple((p.x, p.y, p.z) for p in landmarks)

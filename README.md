@@ -13,6 +13,22 @@ The deterministic controller core is implemented. Webcam runtime requires Python
 
 Use Python 3.11 on macOS and Windows 11.
 
+On Windows, install Python 3.11, then run these commands from the repository
+root in PowerShell (stop if a command fails):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows.ps1 setup
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows.ps1 test
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows.ps1 run -CameraIndex 0
+```
+
+The scripts use `.venv311`, test the UI offscreen, and start camera control paused.
+Choose the actual physical camera index for your machine. `ExecutionPolicy Bypass`
+applies only to that PowerShell process; no persistent policy change is needed.
+In VS Code, select `.venv311/Scripts/python.exe` as the Python interpreter.
+
+For macOS:
+
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
@@ -30,6 +46,14 @@ mirrored camera reverses physical left/right roles. Press `Esc` in the preview t
 stop. Press `p` to pause/resume.
 
 ## Mouse calibration
+
+Click **Calibrate** in the Controller. Input pauses and the preview guides you
+through four boundaries: **left, right, top, bottom**, as seen in the preview.
+Keep the mouse hand visible and place its index tip at a comfortable boundary;
+press **Space** or click **Capture in 3 seconds**, then position the hand during
+the countdown. Repeat for each step. A saved message confirms completion, and
+the app remains paused until you choose Resume. Missing hands/invalid boundaries
+do not advance the step. **Cancel calibration** keeps the previous mapping.
 
 Press `C` to start calibration. Move the right index fingertip to each requested
 comfortable boundary (`left`, `right`, `top`, `bottom`) and press `Space` once per
@@ -87,6 +111,25 @@ Settings lets you choose the camera index, mouse hand, mirrored-hand swapping,
 monitor mode, cursor smoothing/deadzone, and scroll sensitivity. Use **Save** to
 persist a validated local profile; the Controller safely restarts tracking in a
 paused state. Personal settings are stored under `data/` and are ignored by Git.
+
+Under **Settings -> Mouse -> Pointer mode**, select **Index fingertip** to move
+only while pointing with the index finger. Keep the hand visible to the camera;
+this is not a detector for a lone fingertip outside a visible hand. A yellow
+marker highlights the index tip. Configured pinch clicks and scroll poses remain
+available; holding a pinch while pointing allows dragging. Select **Current
+gesture controls** to restore the existing movement mapping. Save restarts paused.
+
+Mouse Settings also offers adaptive smoothing for finer motion and faster large
+movements. In Advanced, Pinch confirmation requires a stable pinch before clicking
+(.08 s by default). Ambiguous simultaneous pinches are ignored; open both before
+switching buttons. Raise the middle finger to start a middle pinch. Change or
+disable each click under Gestures -> Mouse hand. Pinch release remains immediate.
+
+Before either pinch click, extend that finger with the thumb apart, then touch
+the fingertips within 0.8 seconds. An already pinched hand entering the camera
+does not click. Once confirmed, the finger may bend while holding the pinch;
+a clear fist still releases immediately. Click-position anchoring is not yet
+implemented, so finger movement during closing can still displace the cursor.
 
 The left-hand gesture editor supports Disabled, Press, and Hold actions. Enter
 one key (`space`) or a comma-separated shortcut (`ctrl, c`). A press shortcut is
