@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "visioncontrol"
 version = "0.1.0"
 description = "Local-first two-hand webcam mouse and gesture controller"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 [project.scripts]
 visioncontrol = "vision_control.app:main"

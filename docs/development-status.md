@@ -1,5 +1,93 @@
 # Development status
 
+## Keyboard three/four/open correction (2026-09-05)
+
+- User screenshot showed an open left palm labeled Four fingers. Removed the
+  fixed image-X thumb test and Y-only finger counts from static classification.
+- Thumb spread is measured against the palm's index-to-pinky axis, with joint
+  extension and a rejection band. Finger states use aspect-corrected joint and
+  reach geometry. Uncertain states return None and release held keys.
+- Runtime and keyboard/mouse controllers use actual frame dimensions. Existing
+  profile bindings and calibration unchanged.
+- PASS: 87 tests, compileall and diff checks. Tests include both hand labels,
+  mirroring, in-plane rotation/scale, aspect ratios, D/S/Space dispatch and key
+  release on uncertain thumb geometry. Physical user verification pending.
+
+## Pinch versus fist (2026-09-05)
+
+- User confirmed the guided calibration works, then reported mouse pinch/fist
+  confusion. Mouse fist recognition now uses joint bend plus palm/wrist proximity
+  in aspect-corrected landmark coordinates instead of only vertical ordering.
+- New clicks require the corresponding finger recently extended with its thumb
+  pinch open (within .8 s). Pending/held clicks tolerate bending; a clear fist,
+  pause or hand loss releases immediately and clears preparation.
+- Mouse status uses the same fist rule; keyboard gesture rules remain unchanged.
+- PASS: 82 tests, compileall, diff checks. New synthetic-joint tests cover
+  in-plane rotation/scale, cold-start pinches, release, timeout and swapped clicks.
+- Physical click accuracy needs user retesting. Downward cursor movement during
+  pinching still requires the separate click-position anchoring improvement.
+- Public-source findings and links are in `docs/plans/pinch-fist.md`.
+
+## Controller clarity and calibration (2026-09-05)
+
+- Guide now selects Mouse hand / Keyboard hand and describes the configured
+  movement, clicks, scroll, shortcuts and fist safety behavior.
+- Status displays actual mouse/keyboard poses even while input is paused.
+  Windows device prefixes are removed from display labels, retained in tooltips.
+- Visible Calibrate button starts a paused four-step preview workflow. Capture
+  with Space or a three-second countdown; missing-hand and invalid-boundary
+  feedback keeps the current step. Cancel/completion remain paused.
+- Calibration saves atomically; an unsuccessful write leaves the old file and
+  allows the last step to be retried. Successful capture shows a saved message.
+- PASS: 73 tests, compileall, diff checks and offscreen Controller/calibration
+  visual review. Includes focused-button Space capture and local persistence.
+- User physical calibration acceptance remains pending.
+
+## Pointer tuning after Windows user test (2026-09-05)
+
+- User reported lag, uneven pointer motion and unintended right clicks.
+- VIDEO tracking with monotonic millisecond timestamps replaces per-image detection.
+- Optional time-normalized adaptive smoothing is exposed in Mouse Settings.
+- Pinch confirmation is configurable in Advanced; ambiguous pinches are rejected,
+  button switching requires opening both pinches, and release remains immediate.
+- Starting a middle pinch requires a raised middle finger; held pinches still use
+  distance hysteresis. Gesture mappings remain editable and were preserved locally.
+- Local profile backed up and tuned: response .70, adaptive on, deadzone .8 px,
+  pinch close/open .28/.45 and confirmation .10 s.
+- PASS: 64 tests, compileall and diff checks, plus offscreen Settings visual check.
+- Camera timing (45 frames, no input): before 25.8 ms median tracking / 25.3 FPS;
+  after 25.9 ms / 25.3 FPS. No measured FPS improvement is claimed. These are
+  separate short runs, not controlled end-to-end latency measurements.
+- User must recheck pointer feel, deliberate right-click ergonomics and false
+  clicks. Capture buffering and separating inference from the UI remain possible
+  next investigations if latency persists.
+
+## Windows baseline (2026-09-05)
+
+Implementation update:
+
+- Shared input cleanup attempts all releases on error and retains failed adapter
+  state for retry; calibration rejects a missing/ambiguous swapped mouse hand.
+- Settings camera retry errors remain visible in ERROR / PAUSED.
+- Mouse Settings offers Current gesture controls / Index fingertip, persists the
+  choice without overwriting gesture mappings, and highlights the index tip.
+- Fresh Windows settings use camera 0; macOS retains camera 1. Windows uses
+  DirectShow after a substantially faster startup was observed on this machine.
+- PASS: 56 deterministic tests, compileall, diff check; Mouse Settings visually
+  inspected through an offscreen render with Segoe UI registered for the renderer.
+- PASS: camera 0 Controller smoke test outside sandbox, 15 seconds processing
+  physical hand detections, always PAUSED / DISARMED, exit code 0.
+- Pending: actual cursor/click/drag/chord ergonomics, DPI combinations, Windows
+  packaging and macOS regression. No active OS input acceptance is claimed.
+
+- Python 3.11.9 AMD64 and `.venv311` are ready on local branch `windows`.
+- Requirements and editable installation succeed; `pip check` passes.
+- All 41 existing tests pass with Qt offscreen; compileall and diff checks pass.
+- Bundled MediaPipe 0.10.21 model loads and processes a synthetic blank frame.
+- `scripts/windows.ps1` provides setup, test and paused run commands.
+- The original baseline below predates the implementation update above. See
+  `docs/plans/windows-fingertip.md` for the Windows sequence.
+
 ## Working
 
 - MediaPipe tracks up to two hands locally.
@@ -95,3 +183,160 @@ python -m pip install -r requirements.txt
 python -m pip install -e .
 python -m vision_control.launcher --camera-index 1 --start-paused
 ```
+
+## Local diagnostic sessions (Windows)
+
+Run `./scripts/windows.ps1 diagnose -CameraIndex 0`. The separate window opens
+paused. Start begins a three-second countdown and records at most 30 seconds of
+webcam plus a synthetic pointer canvas, without desktop capture, audio, or OS
+input. Uses the current profile and calibration with a fixed 640x480 test area.
+Artifacts under ignored `data/captures/<session>/`: `session.avi`, `frames.jsonl`,
+`metadata.json`, `summary.json`. Frame numbers and elapsed timestamps align video
+with landmarks, poses, pinch decisions, simulated clicks and stage timings.
+AVI playback uses nominal 30 FPS; measured processed FPS is in the summary.
+This does not measure sensor-to-screen latency or real Windows input delivery.
+Validation: 91 deterministic tests passed, compileall and diff check passed.
+Actual user recording and analysis remain pending; camera preview opened paused.
+
+## Pointer recovery correction — 2026-09-05
+
+Mouse point recognition now tolerates naturally curled unused fingers while
+keyboard counting remains strict. Interrupted pose recovery caps movement at
+12% of target diagonal per nominal 30 FPS frame, scaled by elapsed time up to
+50 ms. Fist, pinch preparation/confirmation and emergency releases preserved.
+93 tests pass; compileall and diff checks pass. Offline replay of the authorized
+846-frame recording: move 183 -> 652 frames, waiting_point 657 -> 188, maximum
+canvas step 643.80 -> 300.84 px, no clicks before or after. Remaining large steps
+and physical feel require camera acceptance; no claim of complete jitter removal.
+Existing calibration/profile unchanged. Restart the application to load fixes.
+
+## Aim/click update
+
+Space toggles Pause/Resume within the focused Controller; calibration retains
+Space capture. P remains available, auto-repeat is ignored, and Settings/error/
+calibration block resuming. Tooltip documents scope (not a global OS shortcut).
+Mouse-only point tolerates moderate index bend (130 degrees plus wrist reach)
+with other fingers not extended. This also prepares index pinch while separated.
+Adaptive smoothing adds a display-scaled resting radius; prepared approaching
+pinches anchor the pointer through confirmation and initial drag-hold interval.
+Click thresholds, emergency releases and saved calibration/profile preserved.
+97 deterministic tests passed before the aligned preparation change; final suite
+must pass as well. Physical occluded-hand and click acceptance remain pending.
+
+## Calibration preview and debug access
+
+Controller now has Show calibration area (preview-only saved rectangle/axes),
+Debug recording (exclusive camera handoff to local simulated diagnostic window),
+and per-frame Camera read / Tracking / Runtime timings. Closing diagnostics
+restores the Controller paused. 99 deterministic tests, compilation and diff
+checks passed. Physical camera handoff/visual acceptance still required.
+Camera currently requests 640x480 but no explicit FPS. Processing FPS counts
+completed UI tracking/render cycles, not advertised camera FPS. Prior recording
+had median inference 22.21 ms; 60 processed FPS requires <16.67 ms total per frame.
+Calibration maps camera coordinates to selected display bounds, clamps outside
+coordinates, then movement eligibility, smoothing and click anchoring apply.
+
+## Thumb lock and three-button curl clicks
+
+Implemented opt-in thumb_lock mode and selected user's local profile with backup.
+Click on completed curl/re-extension cycle: index=left, middle=middle,
+index+middle chord=right, only after thumb-open lock. Simultaneous window120ms,
+curl confirmation60ms, full cycle<=800ms. Pinch separated/prepared first then
+held100ms starts relative-palm left drag without prior lock. UI mappings,
+Vietnamese guide and diagnostic prompts updated; old modes preserved.
+109 deterministic tests pass including all3 clicks, chord arbitration, no
+startup pinch, unlocked drag anchor/motion/loss and middle release retry.
+Physical camera accuracy not yet verified. No calibration/exposure changes.
+
+## Pinch latch correction
+
+Removed strict extended-index and0.8s preparation from thumb_lock. Observed
+separation is required after start/loss, stable100ms pinch activates, stable100ms
+opening releases. Brief opening noise holds button and freezes motion; emergency
+release unchanged. I8/T4 markers identify index/thumb.111 tests passed. User must
+restart app; fresh camera acceptance remains pending. Settings preserved.
+
+## Low-latency Controller update (2026-09-06)
+
+- Controller now uses separate camera/inference workers with latest-only slots.
+  Input and independent cursor ticks remain on Qt; stale results (>150 ms) and
+  pre-resume results are rejected, with emergency release on stale tracking.
+- Thumb-lock free movement uses One Euro filtering plus bounded 30 ms velocity
+  prediction. Prediction is disabled during lock/pinch/drag and reset on release.
+- Debug toggle defaults OFF each launch: no landmark overlay or periodic vision
+  logging; turn ON to enable Debug recording. Recording still requires explicit
+  start. Startup/errors remain logged. Calibration overlay is independent.
+- Settings > Advanced recognition exposes pinch start/release confirmation;
+  both default to 0.10 s. Existing personal start value remains 0.10 s.
+- Debug timing shows frame age since camera read and stage total separately;
+  neither includes sensor exposure/display scanout. FPS counts delivered results.
+- Diagnostic recording still uses its synchronous runtime; its FPS is not a
+  direct benchmark of the asynchronous Controller pipeline.
+- Validation: 116 tests passed; compileall and diff check passed. Paused 12-second
+  desktop smoke opened 1280x720 with driver FPS 30 and exited successfully.
+  Actual hand-to-screen latency and gesture feel still require user comparison.
+
+## Preview controls (2026-09-06)
+
+Skeleton is now independent of Debug and defaults ON; Debug still defaults OFF.
+Guide has a show/hide toggle and concise thumb-lock instructions that display
+current start/release settings. Calibration rectangle no longer draws a caption.
+Cursor output uses 18 ms exponential easing with elapsed-time speed limiting;
+free movement emits an age-adjusted target rather than briefly stepping back to
+an unpredicted sample. Gesture timing and emergency release remain unchanged.
+117 tests passed, compileall/diff passed, offscreen toggle smoke passed. Offscreen
+font rendering is unavailable in this environment; real desktop visual/hand
+acceptance remains pending. No camera session or calibration was changed.
+
+## Gesture Hand v1 implementation — 2026-09-06
+
+Implemented the v1 configuration/editor, geometric features, temporal arbitration,
+second-hand modifier holds/count mappings, optional 3 s primary fist switch,
+directional scroll, assignable symbols/corners, zoom and volume rotation.
+Actions stay behind input adapters; diagnostic recording uses simulated input.
+Scroll reserves input only after directional movement, preserving stationary
+thumb-lock curl clicks. Zoom requires a full gathered/spread endpoint, not just
+one curled index. Landmark jumps and stale gaps cancel input state.
+
+Personal profile migrated with exact pre-v1 backup; legacy bindings preserved but
+not used while v1 is enabled. New finger mappings, symbols and corners are empty.
+Two-hand input enabled; fist switch Off. New template config/gesture_v1_profile.json.
+Use Settings > Gesture v1; old keyboard binding controls are disabled in v1.
+
+Verification: full suite 134 tests, compileall and diff checks passed before the
+final zoom endpoint refinement (rerun below). Settings/guide offscreen smoke passed;
+12 s paused desktop camera smoke opened 1280x720@30 and exited cleanly.
+16 s camera benchmark with simulated input/no GUI: 241 measured frames with hands,
+26.17 FPS, tracking p50/p95 38.89/46.88 ms, controller .44/.74 ms, frame age 62/79 ms.
+These are not hand-to-display latency measurements. Historical 727-frame replay
+completed locally; it is not labelled reference data for the new gestures.
+
+Physical acceptance of new poses remains pending, especially thumb extension for
+Shift vs four fingers, OK/drag, gathered zoom and forward-facing volume. Heuristic
+spacing thresholds are editable; this is not personalized model training. macOS
+hardware and application-specific zoom support are not verified. Do not claim
+all milestones accepted or all gesture intentions accurately classified.
+See docs/gesture-hand-v1-testing-vi.md for mappings, limitations and replay.
+
+Final verification after zoom endpoint refinement: 134 tests passed; compileall
+and git diff --check passed. New poses still require user recording/acceptance.
+
+## Pointer source update
+
+The user-facing Mouse selector now contains only Palm (default) and Index
+fingertip. Both use the current gesture engine under Gestures; the extra Gesture
+v1 menu and enable toggle are removed. Legacy identifiers remain readable for
+backward compatibility, but are no longer presented as selectable user modes.
+
+Palm follows the average of wrist + four MCP landmarks and does not lock on
+thumb opening. Open thumb still arms curl clicks; fingertip retains locking.
+Palm scroll pose reserves motion immediately; stationary spread palm does not
+reserve zoom. Assigned OK preempts new pinch drag; existing drag retains ownership.
+Calibration capture uses the selected source. Palm saves mouse_calibration_palm.json;
+existing mouse_calibration.json remains the fingertip mapping. Missing palm
+calibration shows an explicit hint. Personal profile now selects palm; backup
+user_profile.json.pre-pointer-sources.bak preserves the prior configuration.
+
+Verification: 140 tests passed, compileall and diff check passed; offscreen unified
+Settings smoke passed (two options, one Gestures menu, no engine enable toggle).
+Real palm calibration/click/scroll acceptance is still pending user testing.

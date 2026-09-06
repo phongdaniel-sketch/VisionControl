@@ -38,7 +38,10 @@ def hand(states=(False, False, False, False), label="Left"):
     points = [(0.5, .5, 0.0)] * 21
     for tip, pip, up in zip((8, 12, 16, 20), (6, 10, 14, 18), states):
         points[pip] = (.5, .5, 0); points[tip] = (.5, .3 if up else .7, 0)
-    points[0] = (.5, .5, 0); points[9] = (.5, .7, 0)
+        points[tip-3] = (.5 if tip != 20 else .6, .65, 0)
+        points[tip-1] = (.5, .4 if up else .6, 0)
+    points[0] = (.5, .9, 0); points[9] = (.5, .7, 0)
+    points[2], points[3] = (.55, .65, 0), (.52, .58, 0)
     return HandObservation(label, tuple(points))
 
 
@@ -58,7 +61,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(
             self.profile.thresholds["mouse_primary_click_gesture"], "pinch_index")
         self.assertEqual(self.profile.thresholds["mouse_scroll_gesture"], "peace")
-        self.assertTrue(self.profile.arming.enabled)
+        self.assertFalse(self.profile.arming.enabled)
         self.assertNotIn("fist", self.profile.bindings)
         self.assertEqual(self.profile.bindings["point"].keys, ("w",))
 
@@ -100,9 +103,10 @@ class CoreTests(unittest.TestCase):
         self.assertIn(("press", "w"), adapter.events)
 
     def test_mouse_fist_releases_buttons(self):
+        from tests.hand_geometry import pose
         adapter = RecordingInput(); controller = MouseController(adapter, self.profile)
         controller.left_down = True
-        controller.update(hand((False, False, False, False), "Right"))
+        controller.update(pose('fist'))
         self.assertIn(("up", "left"), adapter.events)
 
     def test_invalid_profile_rejected(self):
@@ -217,7 +221,8 @@ class CoreTests(unittest.TestCase):
         adapter = RecordingInput(); adapter._position = (-500, 500)
         controller = MouseController(adapter, self.profile, layout)
         observation = hand((True, False, False, False), "Right")
-        points = list(observation.landmarks); points[8] = (.9, .3, 0)
+        # Translate the entire hand; shifting only the tip changes its joint angle.
+        points = [(x + .4, y, z) for x, y, z in observation.landmarks]
         observation = HandObservation("Right", tuple(points))
         with patch("vision_control.controllers.time.monotonic", side_effect=(0.0, .81)):
             controller.update(observation)
@@ -491,18 +496,15 @@ class CoreTests(unittest.TestCase):
                 self.assertIsNotNone(window.settings_window)
                 self.assertFalse(window.timer.isActive())
                 self.assertFalse(window.settings_window.voice_button.isEnabled())
-                self.assertEqual(window.settings_window.camera.value(), 1)
+                self.assertEqual(window.settings_window.camera.value(), DesktopSettings().camera_index)
                 self.assertEqual(
                     window.settings_window.monitor_mode.currentText(), "fixed")
                 self.assertEqual(window.settings_window.fixed_monitor.currentData(), 0)
                 self.assertIn("Primary", window.settings_window.fixed_monitor.currentText())
                 self.assertIn("×", window.settings_window.fixed_monitor.currentText())
-                self.assertEqual(
-                    window.settings_window.gesture_hand_selector.itemText(0),
-                    "Mouse hand · Right")
-                self.assertEqual(
-                    window.settings_window.gesture_hand_selector.itemText(1),
-                    "Keyboard hand · Left")
+                self.assertIn('Gestures', window.settings_window.nav_buttons)
+                self.assertNotIn('Gesture v1', window.settings_window.nav_buttons)
+                self.assertNotIn('enabled', window.settings_window.v1_panel.controls)
                 self.assertTrue(runtime.paused)
                 self.assertGreaterEqual(runtime.pause_calls, 1)
                 window.settings_window.close()
@@ -576,7 +578,7 @@ class CoreTests(unittest.TestCase):
                     window.arm_cooldown, window.auto_disarm,
                     window.gesture_confidence, window.gesture_on_frames,
                     window.pinch_close, window.pinch_open, window.drag_hold,
-                    window.scroll_deadzone, window.gesture_hand_selector,
+                    window.scroll_deadzone,
                     window.mouse_move_gesture, window.mouse_primary_click,
                     window.mouse_secondary_click, window.mouse_scroll_gesture,
                 ]
@@ -598,6 +600,8 @@ class CoreTests(unittest.TestCase):
                 window.pinch_open.setValue(.55)
                 window.drag_hold.setValue(.6)
                 window.scroll_deadzone.setValue(.02)
+                window.pinch_confirm.setValue(.12)
+                window.adaptive_smoothing.setChecked(True)
                 window._set_combo_data(window.mouse_move_gesture, "point")
                 window._set_combo_data(window.mouse_primary_click, "pinch_middle")
                 window._set_combo_data(window.mouse_secondary_click, "disabled")
@@ -616,6 +620,8 @@ class CoreTests(unittest.TestCase):
                 self.assertEqual(profile.thresholds["pinch_open_ratio"], .55)
                 self.assertEqual(profile.thresholds["drag_hold_seconds"], .6)
                 self.assertEqual(profile.thresholds["scroll_deadzone"], .02)
+                self.assertEqual(profile.thresholds["pinch_confirm_seconds"], .12)
+                self.assertTrue(profile.thresholds["cursor_adaptive_smoothing"])
                 self.assertEqual(profile.thresholds["mouse_move_gesture"], "point")
                 self.assertEqual(
                     profile.thresholds["mouse_primary_click_gesture"], "pinch_middle")

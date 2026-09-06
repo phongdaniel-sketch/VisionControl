@@ -1,5 +1,61 @@
 # VisionControl workspace handoff
 
+Latest keyboard correction: 87 tests pass. Three/four/open static poses now use
+joint geometry; thumb spread is relative to the palm, independent of Left/Right
+labels or mirroring. Ambiguous states return None. This fixes the hardcoded thumb
+direction responsible for the user's open-left-palm screenshot. Saved mappings
+and calibration preserved; physical user retest pending. See
+`docs/plans/keyboard-pose-geometry.md`.
+
+Latest: user successfully calibrated. Mouse pinch/fist refinement implemented;
+82 tests pass. Extend the intended clicking finger with thumb apart, then pinch
+within .8 s. A confirmed pinch may bend; clear geometric fist/Pause/hand loss
+releases input. Stored mappings/calibration were preserved. See
+`docs/plans/pinch-fist.md` for research and pending physical click acceptance.
+Click-position anchoring remains unimplemented.
+
+Latest UI update: 73 tests pass. Controller has a role selector in Gesture Guide,
+clean Windows Display N labels and separate live pose/input status. Calibrate
+button opens a four-boundary inline workflow; Space captures immediately or use
+Capture in 3 seconds. The runtime stays paused throughout and after completion.
+Errors preserve the current step; cancel keeps the old calibration. Files save
+atomically. See `docs/plans/controller-clarity.md`; physical user UAT pending.
+
+Latest pointer tuning (2026-09-05): 64 tests pass. VIDEO tracking, optional adaptive
+smoothing and confirmed/exclusive pinches are implemented. Local tuning is backed
+up under ignored `data/user_profile.before_tuning.*.json`. Response .70, deadzone
+.8 px, close/open .28/.45, confirmation .10 s; mappings remain unchanged. Starting
+a middle pinch requires raising the middle finger. No FPS improvement measured
+in short 45-frame before/after runs (both approximately 25.3 capture/tracking FPS).
+Physical feel and click accuracy await user retest. See `docs/plans/pointer-tuning.md`.
+
+## Windows setup update (2026-09-05)
+
+Follow-up implementation: shared safety fixes and Index fingertip mode are now
+implemented; 56 tests pass. Choose Settings -> Mouse -> Pointer mode -> Index
+fingertip -> Save; the Controller restarts paused. Keep the hand visible and point
+with only the index finger to move. Existing pinch and scroll bindings remain.
+Windows camera 0 now uses DirectShow; a 15-second paused Controller smoke test
+outside sandbox detected physical hands and exited successfully. Active input,
+mixed DPI, Windows packaging and macOS regression still require acceptance.
+
+- Local development branch: `windows`; both platforms share application logic.
+- Python 3.11.9 AMD64 installed for the current user; `.venv311` created and
+  requirements plus the editable project installed successfully.
+- Windows environment reports build 26200, display version 25H2.
+- MediaPipe 0.10.21, NumPy 1.26.4, OpenCV 4.11.0, PySide6 6.11.2 and pynput 1.8.2.
+- PASS: 41 deterministic tests, compileall, pip check and git diff --check.
+- PASS: bundled MediaPipe model initialization and inference on a synthetic blank
+  640x480 frame (zero hands), followed by tracker cleanup. No webcam/input smoke
+  test has been performed on Windows.
+- PowerShell entry point: `scripts/windows.ps1 setup|test|run`; run starts paused
+  and accepts `-CameraIndex 0` (select the actual camera before physical testing).
+- Next: active input/DPI and packaged Windows acceptance, plus macOS regression.
+  See `docs/plans/windows-fingertip.md`. The 41-test entry below records the initial
+  setup baseline; the follow-up result above supersedes it.
+
+The macOS handoff below is historical and remains relevant for macOS regression.
+
 Updated: 2026-08-27 (Asia/Ho_Chi_Minh)
 
 ## Repository
@@ -182,3 +238,95 @@ credentials, so public signing/notarization cannot yet be executed.
 - Profile defaults: `config/default_profile.json`
 - Packaging: `VisionControl.spec`
 - Current status: `docs/development-status.md`
+
+## Diagnostic recording handoff
+
+User approved local webcam + dedicated test canvas recording to investigate
+tracking errors. `scripts/windows.ps1 diagnose` launches a paused standalone UI;
+recording requires Start, counts down three seconds and stops after 30 seconds.
+Inspect newest `data/captures/*/summary.json`, then correlate `frames.jsonl` with
+AVI frame numbers. No desktop/audio capture or OS input; do not interpret test
+canvas results as Windows cursor latency. Current validation: 91 tests passed.
+User's physical recording/gesture comparison is still pending.
+
+Latest pointer correction: mouse-only relaxed pointing plus bounded catch-up
+implemented; 93 tests pass. Recorded 846-frame replay increases move frames from
+183 to 652; waiting_point drops 657 to 188. Maximum canvas step falls 643.80 to
+300.84 px, so large steps are reduced, not eliminated. No replay clicks.
+See docs/requirements/pointer-recovery.md and docs/plans/pointer-recovery.md.
+User must restart the app and perform physical acceptance; settings preserved.
+
+Aim/click usability: focused-window Space pause/resume (calibration capture
+retained), mouse-only moderate bend tolerance, adaptive resting radius and
+prepared-pinch cursor anchoring implemented. See docs/plans/aim-click.md.
+Restart app for user acceptance; do not claim hidden fingertips are recoverable
+or that synthetic jitter tests establish physical-camera accuracy.
+
+Latest UI: Show calibration area + Debug recording + stage timings added.
+Debug closes Controller camera before starting simulated recorder; closing debug
+restores paused Controller. 99 tests pass. Physical handoff acceptance pending.
+See docs/plans/calibration-debug-access.md. Camera FPS setting was not changed.
+
+Pipeline experiment completed: standalone scripts/benchmark_pipeline.py measured
+camera-only / sequential / latest-frame twice at 480p and 720p. 720p camera-only
+~19.9 FPS, sequential ~19.8-20, latest ~20 despite driver reporting MJPG/60 FPS.
+No clear threading gain at this capture rate. One startup timeout retried with
+20s initial wait successfully. No application defaults/input/calibration changed.
+See docs/plans/pipeline-experiment-results-vi.md; investigate capture conditions
+before claiming 60 FPS or integrating pipeline changes.
+
+Latest: thumb_lock mode integrated and selected in local user profile with backup.
+Thumb tucked follows index; thumb open freezes and confirms lock; curl/re-extend
+index left, middle middle, both right. Pinch independently starts left drag after
+prepared separation +100ms; relative palm displacement avoids absolute snap.
+No Peace scroll in this mode. All3 buttons released on pause/loss/error/exit;
+full fist safety requires thumb not open so locked chord is not mistaken for fist.
+109 tests pass, compileall/diff pass. Guide/settings/debug instructions updated.
+New mode requires application restart; physical hand acceptance pending.
+
+Pinch latch update: separation of thumb/index arms drag without index extension
+or0.8s deadline. Contact100ms starts; separation100ms releases with pending
+release cursor freeze. Recontact cancels release, hand loss/Pause/fist still
+release immediately and clear arming. Preview labels I8/T4 distinguish tips.
+111 tests pass, compileall/diff pass. Physical user acceptance pending; prior
+recording still contains hand loss that this change intentionally does not hide.
+
+## 2026-09-06 low-latency runtime
+
+Controller uses async latest-only camera/inference; cursor tick stays on Qt.
+Debug defaults OFF; enable the Debug toggle before opening Debug recording.
+Pinch start/release default 100 ms, adjustable in Advanced recognition.
+See docs/requirements/low-latency-runtime.md and docs/plans/low-latency-runtime.md.
+116 tests and paused 720p30 desktop smoke passed. Diagnostic recorder remains
+synchronous, so compare Controller responsiveness directly rather than treating
+recorder FPS as the same pipeline. Real hand-to-display latency is not measured.
+
+Preview update: Skeleton defaults ON independently of Debug OFF; Guide can hide.
+Calibration caption removed. Time-based output easing added (18 ms time constant).
+117 tests pass; offscreen toggle smoke passes. Real hand smoothness needs testing.
+
+## Legacy fist arming removed
+
+Loaded profiles now ignore legacy arming.enabled; keyboard fist no longer toggles
+input. Settings/Controller guide remove the old gate. Existing bindings operate
+while ACTIVE; Pause/hand loss/calibration/exit still release held keys. New
+Ctrl/Shift/Alt poses and the new two-hand toggle are not implemented yet.
+
+## Gesture Hand v1 test build
+
+V1 code integrated into runtime + Settings > Gesture v1. Personal profile enabled
+with backup data/user_profile.json.pre-gesture-v1.bak. New count bindings/symbols/
+corners empty; two-hand input On, optional 3 s fist switch Off. Ctrl/Shift/Alt
+confirm 1 s; existing drag 100 ms. Scroll starts only after hand translation.
+New config/gesture_v1_profile.json and migrate/replay scripts available.
+Use docs/gesture-hand-v1-testing-vi.md. Full unit/smoke verification exists, but
+physical acceptance of new poses, cross-platform input and complete app zoom
+coverage remain pending. No exe build or commit made for this test iteration.
+
+## Unified pointer sources / Gestures
+
+Current personal and new desktop template default to palm. Mouse Settings exposes
+Palm and Index fingertip; Gestures replaces both old gesture pages. Palm does not
+thumb-lock, fingertip does. Palm calibration is separate and initially required;
+keep existing fingertip file. 140 tests and unified Settings smoke passed. See
+requirements/pointer-source-unification.md. Restart the app to load this change.

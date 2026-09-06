@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from .arming import ArmingSettings
 from .gestures import (
@@ -30,12 +30,17 @@ class Profile:
     arming: ArmingSettings
     bindings: dict[str, GestureBinding]
     thresholds: dict[str, float]
+    pointer_mode: str = "gesture"
+    gesture_v1: dict = field(default_factory=dict)
 
 
 def load_profile(path: str | Path) -> Profile:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     if raw.get("version") != 1:
         raise ValueError("Unsupported profile version")
+    pointer_mode = raw.get("pointer_mode", "gesture")
+    if pointer_mode not in {"gesture", "index_fingertip", "thumb_lock", "palm"}:
+        raise ValueError("Invalid pointer_mode")
     if raw.get("mouse_hand") not in {"Left", "Right"} or raw.get("keyboard_hand") not in {"Left", "Right"}:
         raise ValueError("Hand roles must be Left or Right")
     if raw["mouse_hand"] == raw["keyboard_hand"]:
@@ -48,7 +53,7 @@ def load_profile(path: str | Path) -> Profile:
         raise ValueError("fixed_monitor must be zero or greater")
     arming_raw = raw.get("arming", {})
     arming = ArmingSettings(
-        enabled=bool(arming_raw.get("enabled", True)),
+        enabled=False,  # Legacy fist arming is retired, including saved profiles.
         gesture=str(arming_raw.get("gesture", "fist")),
         hold_seconds=float(arming_raw.get("hold_seconds", 1.0)),
         release_frames=int(arming_raw.get("release_frames", 4)),
@@ -65,6 +70,14 @@ def load_profile(path: str | Path) -> Profile:
             raise ValueError(f"Invalid binding for gesture: {gesture}")
         bindings[gesture] = GestureBinding(action_type, keys)
     thresholds = raw.get("thresholds", {})
+    if not 0 <= float(thresholds.get("pinch_confirm_seconds", .08)) <= .5:
+        raise ValueError("pinch_confirm_seconds must be between 0 and 0.5")
+    if not .04 <= float(thresholds.get('pinch_release_seconds', .1)) <= .5:
+        raise ValueError('pinch_release_seconds must be between .04 and .5')
+    if not isinstance(thresholds.get("cursor_adaptive_smoothing", False), bool):
+        raise ValueError("cursor_adaptive_smoothing must be boolean")
+    if not .05 <= float(thresholds.get("cursor_smoothing", .6)) <= 1:
+        raise ValueError("cursor_smoothing must be between 0.05 and 1")
     for key in ("gesture_confidence", "pinch_close_ratio", "pinch_open_ratio"):
         if not 0 < float(thresholds.get(key, 0.5)) <= 1:
             raise ValueError(f"Invalid threshold: {key}")
@@ -101,5 +114,7 @@ def load_profile(path: str | Path) -> Profile:
         raise ValueError("Invalid monitor edge switching settings")
     if arming.enabled and arming.gesture in bindings:
         raise ValueError("The arming gesture must not also have a key binding")
+    from .gesture_v1_config import config
     return Profile(raw["mouse_hand"], raw["keyboard_hand"], bool(raw.get("swap_hands", False)),
-                   monitor_mode, fixed_monitor, arming, bindings, thresholds)
+                   monitor_mode, fixed_monitor, arming, bindings, thresholds, pointer_mode,
+                   config(raw.get('gesture_v1')))

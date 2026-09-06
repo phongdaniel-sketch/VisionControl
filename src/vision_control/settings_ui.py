@@ -21,7 +21,7 @@ from .ui_theme import APP_STYLE, humanize
 
 
 ROOT = resource_root()
-DEFAULT_PROFILE = ROOT / "config" / "default_profile.json"
+DEFAULT_PROFILE = ROOT / "config" / "gesture_v1_profile.json"
 USER_PROFILE = runtime_data_dir() / "user_profile.json"
 APP_SETTINGS = runtime_data_dir() / "app_settings.json"
 
@@ -55,8 +55,8 @@ class SettingsWindow(QMainWindow):
         self.camera.setRange(0, 20)
         self.camera.setValue(desktop.camera_index)
         self._describe(self.camera,
-                       "Camera device index. On this Mac, 1 is the physical camera; "
-                       "0 is the Immersed virtual camera.")
+                       "Camera device index. Try 0 first on Windows; choose the index "
+                       "of your physical camera if a virtual camera is also installed.")
         self.start_paused = QCheckBox("Always start paused")
         self.start_paused.setChecked(desktop.start_paused)
         self._describe(self.start_paused,
@@ -66,6 +66,13 @@ class SettingsWindow(QMainWindow):
         self.mouse_hand.setCurrentText(profile.mouse_hand)
         self._describe(self.mouse_hand,
                        "Hand used for pointer movement, pinch clicks, drag, and scrolling.")
+        self.pointer_mode = QComboBox()
+        self.pointer_mode.addItem("Palm (default)", "palm")
+        self.pointer_mode.addItem("Index fingertip", "thumb_lock")
+        self._set_combo_data(self.pointer_mode, 'thumb_lock' if profile.pointer_mode in {'thumb_lock', 'index_fingertip'} else 'palm')
+        self._describe(self.pointer_mode,
+                       "Palm follows palm center without thumb locking. Index fingertip locks when the thumb opens. "
+                       "Both use the same gestures; calibration is saved separately.")
         self.swap_hands = QCheckBox("Swap detected hands for mirrored camera")
         self.swap_hands.setChecked(profile.swap_hands)
         self._describe(self.swap_hands,
@@ -90,6 +97,28 @@ class SettingsWindow(QMainWindow):
             self.smoothing,
             "Higher values follow your hand faster; lower values filter more jitter.")
         self.smoothing.setValue(float(profile.thresholds.get("cursor_smoothing", .6)))
+        self.adaptive_smoothing = QCheckBox("Adapt smoothing to movement")
+        self.adaptive_smoothing.setChecked(bool(profile.thresholds.get(
+            "cursor_adaptive_smoothing", False)))
+        self._describe(self.adaptive_smoothing,
+                       "Filters small movements more strongly and follows large movements faster. "
+                       "Response is adjusted for processing frame rate.")
+        self.pinch_confirm = QDoubleSpinBox()
+        self.pinch_confirm.setRange(0, .5)
+        self.pinch_confirm.setDecimals(2)
+        self.pinch_confirm.setSingleStep(.02)
+        self.pinch_confirm.setSuffix(" s")
+        self.pinch_confirm.setValue(float(profile.thresholds.get("pinch_confirm_seconds", .08)))
+        self.pinch_release = QDoubleSpinBox()
+        self.pinch_release.setRange(.04, .5)
+        self.pinch_release.setDecimals(2)
+        self.pinch_release.setSingleStep(.01)
+        self.pinch_release.setSuffix(' s')
+        self.pinch_release.setValue(float(profile.thresholds.get('pinch_release_seconds', .1)))
+        self._describe(self.pinch_release,'Thumb-lock drag: continuously separated time before release. Pause/hand loss releases immediately.')
+        self._describe(self.pinch_confirm,
+                       "Keep one clear pinch closed this long before a click starts. "
+                       "Higher values reject brief false clicks. Release remains immediate.")
         self.deadzone = QDoubleSpinBox()
         self.deadzone.setRange(0, 30)
         self.deadzone.setSingleStep(.5)
@@ -347,7 +376,7 @@ class SettingsWindow(QMainWindow):
         self.pages = QStackedWidget()
         builders = {
             "General": self._general_page, "Camera": self._camera_page,
-            "Mouse": self._mouse_page, "Gestures": self._gestures_page,
+            "Mouse": self._mouse_page, "Gestures": self._current_gestures_page,
             "Keyboard": self._keyboard_page, "Displays": self._displays_page,
             "Advanced": self._advanced_page,
         }
@@ -398,6 +427,18 @@ class SettingsWindow(QMainWindow):
         self.nav_buttons[name] = button
         self.pages.addWidget(page)
 
+    def _current_gestures_page(self):
+        from .gesture_v1_ui import GestureV1Panel
+        self.v1_panel = GestureV1Panel(self.raw_profile.get('gesture_v1'))
+        return self._page('Gestures', 'Hand actions and shortcuts for both pointer modes', self.v1_panel)
+
+    def _v1_mapping_state(self, enabled):
+        for action, keys in self.gesture_rows.values():
+            action.setEnabled(not enabled)
+            keys.setEnabled(not enabled)
+            action.setToolTip('Use Gesture v1 for the new 1–5 finger bindings.' if enabled else
+                              'Choose Disabled, Press or Hold for this legacy gesture.')
+
     def _page(self, title, subtitle, body):
         widget = QWidget()
         layout = QVBoxLayout(widget)
@@ -444,16 +485,19 @@ class SettingsWindow(QMainWindow):
     def _mouse_page(self):
         group, form = self._form_group("Mouse control")
         form.addRow("Control hand", self.mouse_hand)
+        form.addRow("Pointer mode", self.pointer_mode)
         form.addRow("Cursor response", self.smoothing)
+        form.addRow(self.adaptive_smoothing)
         form.addRow("Movement deadzone", self.deadzone)
-        form.addRow("Scroll sensitivity", self.scroll)
         note = QLabel(
-            "For faster tracking, increase Cursor response. If small hand movements "
-            "are ignored, reduce Movement deadzone.")
+            "Palm: opening the thumb enables clicks without locking the pointer. "
+            "Index fingertip: opening the thumb locks the pointer for clicks. "
+            "Pinch drags in both modes. Calibrate each mode separately. "
+            "Configure scroll and other actions in Gestures.")
         note.setObjectName("muted")
         note.setWordWrap(True)
         form.addRow(note)
-        return self._page("Mouse", "Tune pointer response without changing gesture logic.", group)
+        return self._page("Mouse", "Choose pointer mode and tune its response.", group)
 
     def _gestures_page(self):
         body = QFrame()
@@ -486,6 +530,22 @@ class SettingsWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         group, form = self._form_group("Mouse-hand mapping")
         form.addRow("Move pointer", self.mouse_move_gesture)
+        mode_note = QLabel("Thumb lock: open thumb to freeze. Curl/re-extend index = left, "
+                           "middle = middle, both = right. Index pinch = drag. "
+                           "The mappings below apply to the other pointer modes.")
+        mode_note.setWordWrap(True)
+        mode_note.setObjectName("muted")
+        form.addRow(mode_note)
+        self.pointer_mode.currentIndexChanged.connect(
+            lambda: self.mouse_move_gesture.setEnabled(
+                self.pointer_mode.currentData() == "gesture"))
+        self.mouse_move_gesture.setEnabled(self.pointer_mode.currentData() == "gesture")
+        def update_click_editors():
+            enabled = self.pointer_mode.currentData() != 'thumb_lock'
+            for editor in (self.mouse_primary_click, self.mouse_secondary_click, self.mouse_scroll_gesture):
+                editor.setEnabled(enabled)
+        self.pointer_mode.currentIndexChanged.connect(update_click_editors)
+        update_click_editors()
         form.addRow("Primary click / drag", self.mouse_primary_click)
         form.addRow("Secondary click / drag", self.mouse_secondary_click)
         form.addRow("Scroll", self.mouse_scroll_gesture)
@@ -495,7 +555,9 @@ class SettingsWindow(QMainWindow):
             "Fist always stops the pointer and releases held mouse buttons.")
         note = QLabel(
             "Primary and secondary clicks must use different pinches. A selected "
-            "movement pose must also differ from the scroll pose.")
+            "movement pose must also differ from the scroll pose. Extend the clicking "
+            "finger with the thumb apart, then pinch within 0.8 seconds. Open both pinches before "
+            "switching buttons. Adjust Pinch confirmation in Advanced.")
         note.setObjectName("muted")
         note.setWordWrap(True)
         form.addRow(fist)
@@ -513,7 +575,7 @@ class SettingsWindow(QMainWindow):
             "point": "Index finger", "peace": "Index + middle",
             "three_fingers": "Three extended fingers",
             "four_fingers": "Four extended fingers", "open_palm": "Open hand",
-            "fist": "Reserved for keyboard arm/disarm",
+            "fist": "No keyboard toggle; modifier support pending",
         }
         for index, gesture in enumerate((*EDITABLE_GESTURES, "fist")):
             item = QFrame()
@@ -531,10 +593,10 @@ class SettingsWindow(QMainWindow):
                 item_layout.addWidget(action)
                 item_layout.addWidget(keys)
             else:
-                locked = QLabel("Safety gesture · Not assignable")
+                locked = QLabel("No action assigned")
                 locked.setStyleSheet("color: #ffb36b; font-weight: 600")
                 locked.setToolTip(
-                    "Fist toggles keyboard ARMED/DISARMED and cannot send a key action.")
+                    "Legacy fist arming has been removed. New modifier gestures are pending.")
                 item_layout.addWidget(locked)
             grid.addWidget(item, index // 3, index % 3)
         note = QLabel(
@@ -546,19 +608,15 @@ class SettingsWindow(QMainWindow):
         return card
 
     def _keyboard_page(self):
-        group, form = self._form_group("Keyboard arming safety")
-        form.addRow("Fist hold time", self.arm_hold)
-        form.addRow("Release stability", self.arm_release_frames)
-        form.addRow("Toggle cooldown", self.arm_cooldown)
-        form.addRow("Hand-loss auto-disarm", self.auto_disarm)
+        group, form = self._form_group("Keyboard control")
         note = QLabel(
-            "Hold Fist to arm keyboard gestures before they can emit keys. Pause, "
+            "Fist arming has been removed. Keyboard bindings work while ACTIVE. Pause, "
             "Settings, hand loss, calibration, errors, and exit release held keys.")
         note.setObjectName("muted")
         note.setWordWrap(True)
         form.addRow(note)
         return self._page(
-            "Keyboard", "Tune the Fist arm/disarm safety gate for keyboard gestures.", group)
+            "Keyboard", "Edit key bindings in Gestures. Use Pause to stop input.", group)
 
     def _displays_page(self):
         group, form = self._form_group("Display mapping")
@@ -583,6 +641,8 @@ class SettingsWindow(QMainWindow):
         recognition_form.addRow("Activation frames", self.gesture_on_frames)
         recognition_form.addRow("Pinch start ratio", self.pinch_close)
         recognition_form.addRow("Pinch release ratio", self.pinch_open)
+        recognition_form.addRow("Pinch confirmation", self.pinch_confirm)
+        recognition_form.addRow('Pinch release confirmation', self.pinch_release)
         pointer, pointer_form = self._form_group("Pointer gesture timing")
         pointer_form.addRow("Drag hold time", self.drag_hold)
         pointer_form.addRow("Scroll movement deadzone", self.scroll_deadzone)
@@ -617,14 +677,19 @@ class SettingsWindow(QMainWindow):
 
     def reset_defaults(self):
         self.raw_profile = json.loads(DEFAULT_PROFILE.read_text(encoding="utf-8"))
+        self.v1_panel.load(self.raw_profile.get('gesture_v1'))
         profile = load_profile(DEFAULT_PROFILE)
-        self.camera.setValue(1)
+        self.camera.setValue(DesktopSettings().camera_index)
         self.start_paused.setChecked(True)
         self.mouse_hand.setCurrentText(profile.mouse_hand)
+        self._set_combo_data(self.pointer_mode, 'thumb_lock' if profile.pointer_mode in {'thumb_lock', 'index_fingertip'} else 'palm')
         self.swap_hands.setChecked(profile.swap_hands)
         self.monitor_mode.setCurrentText(profile.monitor_mode)
         self._set_fixed_monitor(profile.fixed_monitor)
         self.smoothing.setValue(profile.thresholds["cursor_smoothing"])
+        self.adaptive_smoothing.setChecked(profile.thresholds.get("cursor_adaptive_smoothing", False))
+        self.pinch_confirm.setValue(profile.thresholds.get("pinch_confirm_seconds", .08))
+        self.pinch_release.setValue(profile.thresholds.get('pinch_release_seconds', .1))
         self.deadzone.setValue(profile.thresholds["cursor_deadzone_px"])
         self.scroll.setValue(profile.thresholds["scroll_sensitivity"])
         self.edge_switch.setChecked(profile.thresholds["monitor_edge_switch_enabled"])
@@ -663,17 +728,22 @@ class SettingsWindow(QMainWindow):
             mouse_hand = self.mouse_hand.currentText()
             raw = json.loads(json.dumps(self.raw_profile))
             raw["mouse_hand"] = mouse_hand
+            raw["pointer_mode"] = self.pointer_mode.currentData()
             raw["keyboard_hand"] = "Left" if mouse_hand == "Right" else "Right"
             raw["swap_hands"] = self.swap_hands.isChecked()
             raw["monitor_mode"] = self.monitor_mode.currentText()
             raw["fixed_monitor"] = int(self.fixed_monitor.currentData() or 0)
             arming = raw.setdefault("arming", {})
+            arming["enabled"] = False
             arming["hold_seconds"] = self.arm_hold.value()
             arming["release_frames"] = self.arm_release_frames.value()
             arming["cooldown_seconds"] = self.arm_cooldown.value()
             arming["auto_disarm_on_hand_loss_seconds"] = self.auto_disarm.value()
             thresholds = raw.setdefault("thresholds", {})
             thresholds["cursor_smoothing"] = self.smoothing.value()
+            thresholds["cursor_adaptive_smoothing"] = self.adaptive_smoothing.isChecked()
+            thresholds["pinch_confirm_seconds"] = self.pinch_confirm.value()
+            thresholds['pinch_release_seconds'] = self.pinch_release.value()
             thresholds["cursor_deadzone_px"] = self.deadzone.value()
             thresholds["scroll_sensitivity"] = self.scroll.value()
             thresholds["monitor_edge_switch_enabled"] = self.edge_switch.isChecked()
@@ -703,6 +773,7 @@ class SettingsWindow(QMainWindow):
             selections = {gesture: (action.currentText(), keys.text())
                           for gesture, (action, keys) in self.gesture_rows.items()}
             raw = apply_gesture_bindings(raw, selections)
+            raw['gesture_v1'] = self.v1_panel.value()
             save_user_profile(USER_PROFILE, raw)
             save_desktop_settings(APP_SETTINGS, DesktopSettings(
                 self.camera.value(), self.start_paused.isChecked()))

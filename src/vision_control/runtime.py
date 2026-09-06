@@ -1,13 +1,13 @@
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
 from .arming import ArmingController
-from .calibration import CalibrationSession, load_calibration, save_calibration
+from .calibration import CalibrationSession, load_calibration, save_calibration, pointer_point, calibration_filename
 from .camera import Camera
 from .controllers import GestureController, MouseController
-from .gestures import classify_static
+from .gestures import classify_static, classify_mouse_pose
 from .input_adapter import PynputInputAdapter
 from .monitors import discover_monitors
 from .overlay import Overlay
@@ -15,6 +15,7 @@ from .paths import resource_root, runtime_data_dir
 from .profile import load_profile
 from .roles import assign_roles
 from .tracker import MediaPipeTracker
+from .types import HandsFrame
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,10 @@ class RuntimeSnapshot:
     keyboard_state: str
     arming_progress: float
     help_text: str = ""
+    mouse_pose: str = "none"
+    keyboard_pose: str = "none"
+    sample_time: float = 0.0
+    timings_ms: dict = field(default_factory=dict)
 
 
 class VisionRuntime:
@@ -39,7 +44,12 @@ class VisionRuntime:
 
     def __init__(self, camera_index=1, start_paused=False, profile_path=None,
                  camera_factory=Camera, tracker_factory=MediaPipeTracker,
-                 adapter_factory=PynputInputAdapter):
+                 adapter_factory=PynputInputAdapter, async_mode=False):
+        self.async_mode = async_mode
+        self.perception = None
+        self.accept_after = 0.
+        self.debug_enabled = False
+        self.landmarks_enabled = True
         self.camera_index = camera_index
         self.profile_path = Path(profile_path) if profile_path else None
         self.paused = bool(start_paused)
@@ -49,13 +59,18 @@ class VisionRuntime:
         self.adapter = self.mouse = self.keyboard = None
         self.camera = self.tracker = self.overlay = None
         self.arming = None
+        self.primary_v1 = self.second_v1 = None
         self.profile = None
         self.calibration_session = CalibrationSession()
+        self.calibration_needed = False
         self.last_snapshot = None
         self.last_log = 0.0
         self.started = False
 
     def start(self, progress: Callable[[float, str], None] | None = None):
+        if self.perception is not None:
+            self.perception.close()
+            self.perception = None
         progress = progress or (lambda _value, _message: None)
         root = resource_root()
         try:
@@ -67,16 +82,27 @@ class VisionRuntime:
             progress(.32, "Detecting monitors")
             layout = discover_monitors(self.profile.monitor_mode,
                                        self.profile.fixed_monitor)
-            calibration_path = runtime_data_dir() / "mouse_calibration.json"
+            calibration_path = runtime_data_dir() / calibration_filename(self.profile.pointer_mode)
+            self.calibration_needed = self.profile.pointer_mode == 'palm' and not calibration_path.exists()
             calibration = load_calibration(calibration_path)
             self.mouse = MouseController(self.adapter, self.profile, layout, calibration)
             self.keyboard = GestureController(self.adapter, self.profile)
             self.arming = ArmingController(self.profile.arming)
+            self.primary_v1 = self.second_v1 = None
+            if self.profile.gesture_v1.get('enabled'):
+                from .gesture_v1 import PrimaryHand, SecondHand
+                self.primary_v1 = PrimaryHand(self.adapter, self.profile.gesture_v1)
+                self.second_v1 = SecondHand(self.adapter, self.profile.gesture_v1)
             progress(.52, "Loading hand tracking model")
-            self.tracker = self.tracker_factory()
-            progress(.82, "Opening camera")
-            self.camera = self.camera_factory(index=self.camera_index)
-            self.camera.open()
+            if self.async_mode:
+                from .perception_worker import LatestPerception
+                self.perception = LatestPerception(self.camera_factory,self.tracker_factory,self.camera_index)
+                self.perception.start()
+            else:
+                self.tracker = self.tracker_factory()
+                progress(.82, "Opening camera")
+                self.camera = self.camera_factory(index=self.camera_index)
+                self.camera.open()
             import cv2
             self.overlay = Overlay(cv2)
             self.started = True
@@ -92,8 +118,26 @@ class VisionRuntime:
         if not self.started:
             raise RuntimeError("VisionRuntime has not been started")
         import cv2
-        frame = cv2.flip(self.camera.read(), 1)
-        result = self.tracker.track(frame, time.monotonic())
+        before_read = time.perf_counter()
+        if self.perception is not None:
+            packet = self.perception.take()
+            if packet is None:
+                if self.last_snapshot is None or time.monotonic()-self.last_snapshot.sample_time>.15:
+                    self._release_controls()
+                return None
+            _,frame,result,sample_time,read_ms,track_ms = packet
+            if time.monotonic()-sample_time>.15 or sample_time<self.accept_after:
+                self._release_controls()
+                return None
+            after_read = before_read
+        else:
+            frame = cv2.flip(self.camera.read(), 1)
+            after_read = time.perf_counter()
+            sample_time = time.monotonic()
+            result = self.tracker.track(frame, sample_time)
+            read_ms = (after_read-before_read)*1000
+            track_ms = (time.perf_counter()-after_read)*1000
+        after_tracking = time.perf_counter()
         mouse_hand, keyboard_hand = assign_roles(
             result, self.profile.mouse_hand, self.profile.keyboard_hand,
             self.profile.swap_hands)
@@ -101,13 +145,32 @@ class VisionRuntime:
         raw_gesture = "none"
         confidence = self.profile.thresholds.get("gesture_confidence", .7)
         if keyboard_hand is not None and keyboard_hand.confidence >= confidence:
-            raw_gesture, _ = classify_static(keyboard_hand)
+            raw_gesture, _ = classify_static(keyboard_hand, (result.width, result.height))
+        mouse_pose = "none"
+        if mouse_hand is not None and mouse_hand.confidence >= .5:
+            mouse_pose = classify_mouse_pose(mouse_hand, (result.width, result.height))
 
         if self.calibration_session.active:
             self._release_controls()
             self.mouse.status = "calibrating"
             gesture = f"calibrate:{self.calibration_session.stage}"
+        elif not self.paused and self.primary_v1 is not None:
+            from .gesture_v1 import features
+            if self.last_snapshot is not None and sample_time - self.last_snapshot.sample_time > .15:
+                self._release_controls()
+            size = (result.width, result.height)
+            primary = features(mouse_hand, size, self.profile.gesture_v1)
+            secondary = features(keyboard_hand, size, self.profile.gesture_v1)
+            self.mouse.sample_time = sample_time
+            consumed = self.primary_v1.update(primary, sample_time, self.mouse)
+            if consumed:
+                self.mouse.status = self.primary_v1.status
+            else:
+                self.mouse.update(mouse_hand, size)
+            self.second_v1.update(secondary, sample_time, self.primary_v1.two_hands)
+            gesture = self.second_v1.status
         elif not self.paused:
+            self.mouse.sample_time = sample_time
             self.mouse.update(mouse_hand, (result.width, result.height))
             arming_event = self.arming.update(
                 raw_gesture, keyboard_hand is not None, now)
@@ -121,7 +184,7 @@ class VisionRuntime:
                 self.keyboard.release_keys()
                 gesture = raw_gesture
             elif self.arming.armed:
-                gesture = self.keyboard.update(keyboard_hand)
+                gesture = self.keyboard.update(keyboard_hand, (result.width, result.height))
             else:
                 self.keyboard.release_keys()
                 gesture = raw_gesture
@@ -129,9 +192,10 @@ class VisionRuntime:
             self._release_controls()
             gesture = "paused"
 
-        help_text = ""
+        help_text = 'Palm calibration not saved. Press Calibrate to set your movement area.' if self.calibration_needed else ''
         if self.calibration_session.active:
-            help_text = (f"Move {self.profile.mouse_hand.lower()} index to "
+            source_name = 'palm center' if self.profile.pointer_mode == 'palm' else 'index fingertip'
+            help_text = (f"Move {self.profile.mouse_hand.lower()} {source_name} to "
                          f"{self.calibration_session.stage}; SPACE=capture, R=cancel")
         snapshot = RuntimeSnapshot(
             frame=frame,
@@ -144,16 +208,34 @@ class VisionRuntime:
             keyboard_found=keyboard_hand is not None,
             mouse_status=self.mouse.status,
             monitor_name=self.mouse.target_region.name,
-            keyboard_state=self.arming.label,
-            arming_progress=self.arming.progress,
+            keyboard_state=self.second_v1.status if self.second_v1 else self.arming.label,
+            arming_progress=max(self.second_v1.progress, self.primary_v1.progress) if self.second_v1 else self.arming.progress,
             help_text=help_text,
+            mouse_pose=mouse_pose,
+            keyboard_pose=raw_gesture,
+            sample_time=sample_time,
+            timings_ms={
+                'camera_read': read_ms,
+                'tracking': track_ms,
+                'controller': (time.perf_counter() - after_tracking) * 1000,
+            },
         )
         self.last_snapshot = snapshot
         if status_overlay:
             self.overlay.draw(frame, **self._overlay_values(snapshot))
-        else:
+        elif self.landmarks_enabled:
             self.overlay.draw_landmarks(frame, snapshot.hands)
-        if now - self.last_log >= 1.0:
+        if self.landmarks_enabled and self.profile.pointer_mode in {"index_fingertip", "thumb_lock", "palm"} and mouse_hand is not None:
+            self.overlay.draw_fingertip(frame, mouse_hand)
+            if self.profile.pointer_mode == 'palm':
+                x, y, _ = pointer_point(mouse_hand, 'palm')
+                cv2.circle(frame, (round(x * result.width), round(y * result.height)),
+                           9, (220, 80, 240), 2, cv2.LINE_AA)
+        snapshot.timings_ms['runtime_total'] = (time.perf_counter() - before_read) * 1000
+        if self.perception is not None:
+            snapshot.timings_ms['result_age'] = (time.monotonic()-sample_time)*1000
+            snapshot.timings_ms['runtime_total'] += read_ms+track_ms
+        if self.debug_enabled and now - self.last_log >= 1.0:
             labels = [(hand.label, round(hand.confidence, 2))
                       for hand in snapshot.hands]
             print(
@@ -170,6 +252,7 @@ class VisionRuntime:
         return snapshot
 
     def set_paused(self, paused: bool) -> None:
+        self.accept_after = time.monotonic()
         self.paused = bool(paused)
         if self.paused:
             self._release_controls()
@@ -184,55 +267,82 @@ class VisionRuntime:
         if self.calibration_session.active:
             return
         self.calibration_session.start()
-        self._release_controls()
+        self.set_paused(True)
 
     def capture_calibration(self) -> bool:
         if not self.calibration_session.active or self.last_snapshot is None:
             return False
-        mouse_hand = next(
-            (hand for hand in self.last_snapshot.hands
-             if hand.label == self.profile.mouse_hand), None)
-        if self.profile.swap_hands:
-            expected = "Left" if self.profile.mouse_hand == "Right" else "Right"
-            mouse_hand = next(
-                (hand for hand in self.last_snapshot.hands if hand.label == expected),
-                mouse_hand)
-        if mouse_hand is None:
+        mouse_hand, _ = assign_roles(
+            HandsFrame(0, self.last_snapshot.hands), self.profile.mouse_hand,
+            self.profile.keyboard_hand, self.profile.swap_hands)
+        if (mouse_hand is None or len(mouse_hand.landmarks) < 21 or
+                mouse_hand.confidence < .5):
             return False
-        point = mouse_hand.landmarks[8]
+        point = pointer_point(mouse_hand, self.profile.pointer_mode)
+        stage = self.calibration_session.stage
+        values = self.calibration_session.values
+        if not (0 <= point[0] <= 1 and 0 <= point[1] <= 1):
+            raise ValueError("Keep the selected pointer point inside the camera preview.")
+        if stage == "right" and point[0] <= values["left"] + .05:
+            raise ValueError("Move farther RIGHT in the preview, away from the saved left edge.")
+        if stage == "bottom" and point[1] <= values["top"] + .05:
+            raise ValueError("Move farther DOWN in the preview, away from the saved top edge.")
         complete = self.calibration_session.capture(point[0], point[1])
         if complete:
             calibration = self.calibration_session.result()
-            save_calibration(runtime_data_dir() / "mouse_calibration.json", calibration)
+            try:
+                save_calibration(runtime_data_dir() / calibration_filename(self.profile.pointer_mode), calibration)
+            except Exception:
+                self.calibration_session.index = 3
+                self.calibration_session.active = True
+                raise
             self.mouse.calibration = calibration
+            self.calibration_needed = False
         return complete
 
     def cancel_calibration(self) -> None:
         self.calibration_session.cancel()
+        self.set_paused(True)
 
     def close(self) -> None:
         self._release_controls()
+        if self.perception is not None:
+            self.perception.close()
+            self.perception = None
         adapter, self.adapter = self.adapter, None
         camera, self.camera = self.camera, None
         tracker, self.tracker = self.tracker, None
-        self._safe_cleanup("input adapter", adapter, "release_all")
+        if not self._safe_cleanup("input adapter", adapter, "release_all"):
+            self.adapter = adapter
         self._safe_cleanup("camera", camera, "close")
         self._safe_cleanup("hand tracker", tracker, "close")
         self.started = False
 
+    def cursor_tick(self):
+        if self.paused or self.calibration_session.active or not self.mouse:
+            return
+        if self.last_snapshot is None or time.monotonic()-self.last_snapshot.sample_time>.15:
+            self._release_controls()
+            return
+        self.mouse.thumb_control.advance(time.monotonic())
+
     def _release_controls(self) -> None:
+        self._safe_cleanup('second hand', self.second_v1, 'reset')
+        self._safe_cleanup('primary gestures', self.primary_v1, 'reset')
         self._safe_cleanup("arming state", self.arming, "disarm")
         self._safe_cleanup("keyboard", self.keyboard, "release_all")
         self._safe_cleanup("mouse", self.mouse, "release_all")
 
     @staticmethod
-    def _safe_cleanup(label, target, method) -> None:
+    def _safe_cleanup(label, target, method) -> bool:
         if target is None:
-            return
+            return True
         try:
             getattr(target, method)()
+            return True
         except Exception as exc:
             print(f"[shutdown] unable to close {label}: {exc}", flush=True)
+            return False
 
     @staticmethod
     def _overlay_values(snapshot: RuntimeSnapshot) -> dict:
