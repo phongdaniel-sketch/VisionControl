@@ -24,7 +24,7 @@ ROOT = resource_root()
 
 class ControllerWindow(QMainWindow):
     def __init__(self, runtime, runtime_factory=VisionRuntime,
-                 settings_factory=SettingsWindow):
+                 settings_factory=SettingsWindow, enable_tray=False):
         super().__init__()
         self.runtime = runtime
         self.runtime_factory = runtime_factory
@@ -33,6 +33,9 @@ class ControllerWindow(QMainWindow):
         self.diagnostic_window = None
         self.frame_error = None
         self.closing = False
+        self.hidden_in_tray = False
+        self.perception_suspended = False
+        self.tray = None
         self.last_frame_time = None
         self.last_status_time = 0.
         self.smoothed_fps = 0.0
@@ -59,6 +62,13 @@ class ControllerWindow(QMainWindow):
             shortcut.setAutoRepeat(False)
             shortcut.activated.connect(callback)
             self.shortcuts.append(shortcut)
+
+        if enable_tray:
+            from .system_tray import ControllerTray
+            self.tray = ControllerTray(self)
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.shutdown)
 
     def _build_ui(self):
         root = QWidget()
@@ -130,9 +140,6 @@ class ControllerWindow(QMainWindow):
         self.status_keyboard_pose = self._status_row(left, "Key pose", "--")
         self.status_monitor = self._status_row(left, "Display", "--")
         left.addStretch()
-        hint = QLabel("P Pause · C Calibrate\nEsc Exit")
-        hint.setObjectName("muted")
-        left.addWidget(hint)
         content.addWidget(left_card)
 
         camera_card = QFrame()
@@ -197,7 +204,7 @@ class ControllerWindow(QMainWindow):
         self.pause_button = QPushButton("Pause")
         self.pause_button.setObjectName("danger")
         self.pause_button.clicked.connect(self.toggle_pause)
-        self.pause_button.setToolTip('Space or P: Pause/Resume while this window is focused. During calibration, Space captures a boundary.')
+        self.pause_button.setToolTip('Space or P: Pause/Start while this window is focused. During calibration, Space captures a boundary.')
         self.pause_button.setMinimumWidth(190)
         self.mouse_button = QPushButton("Mouse · Active")
         self.mouse_button.setEnabled(False)
@@ -314,12 +321,16 @@ class ControllerWindow(QMainWindow):
             snapshot = self.runtime.process_frame()
             if hasattr(self.runtime,'cursor_tick'):self.runtime.cursor_tick()
             if snapshot is None:return
+            if self.hidden_in_tray:
+                self._sync_tray()
+                return
             frame = snapshot.frame
             if self.calibration_view_button.isChecked():
                 from .overlay import Overlay
                 import cv2
                 frame = Overlay(cv2).draw_calibration(frame.copy(), self.runtime.mouse.calibration)
-            self._render_frame(frame)
+            if self.isVisible():
+                self._render_frame(frame)
             if time.monotonic()-self.last_status_time >= .1 or self.runtime.calibration_session.active:
                 self._render_status(snapshot)
                 self.last_status_time = time.monotonic()
@@ -345,6 +356,8 @@ class ControllerWindow(QMainWindow):
         self.capture_deadline = None
         self.calibration_panel.hide()
         self.calibrate_button.setEnabled(False)
+        self._sync_tray()
+        self.show_controller()
         QMessageBox.critical(
             self, "VisionControl paused safely",
             f"Camera processing could not continue, but the app will remain open.\n\n"
@@ -386,14 +399,14 @@ class ControllerWindow(QMainWindow):
         self.status_keyboard.setText(keyboard_status)
         self.status_keyboard_pose.setText(humanize(getattr(snapshot, 'keyboard_pose', 'none')))
         self.status_keyboard_pose.setToolTip(f"Detected pose on the {snapshot.keyboard_role.lower()} hand")
-        self.status_monitor.setText(display_name(snapshot.monitor_name))
+        self.status_monitor.setText(self._current_display_name(snapshot.monitor_name))
         self.status_monitor.setToolTip(f"{self.runtime.profile.monitor_mode.title()} mode · {snapshot.monitor_name}")
         mouse_found = "Detected" if snapshot.mouse_found else "Not detected"
         self.mouse_button.setText(f"Mouse · {mouse_found}")
         self.keyboard_button.setText(f"Keyboard · {keyboard_status}")
         progress = (f" · {int(snapshot.arming_progress * 100)}%"
                     if snapshot.arming_progress else "")
-        self.gesture_badge.setText('PAUSED · Press Resume to control' if snapshot.paused else
+        self.gesture_badge.setText('PAUSED · Press Start to control' if snapshot.paused else
                                   f"ACTIVE · Mouse: {humanize(getattr(snapshot, 'mouse_pose', 'none'))}{progress}")
         self.help_label.setText(self.calibration_feedback or snapshot.help_text)
         self.tracking_label.setText(
@@ -404,12 +417,50 @@ class ControllerWindow(QMainWindow):
         self._update_pause_button()
         self._update_calibration(snapshot)
 
+    def _current_display_name(self, fallback):
+        mouse = getattr(self.runtime, 'mouse', None)
+        layout = getattr(mouse, 'layout', None)
+        adapter = getattr(self.runtime, 'adapter', None)
+        if layout is None or adapter is None:
+            return display_name(fallback)
+        cursor = adapter.position()
+        region = layout.target(cursor)
+        if layout.mode == 'all':
+            region = next((item for item in layout.regions if item.contains(cursor)), None)
+            if region is None:
+                return 'All displays'
+        screens = list(QApplication.screens())
+        screen = next((item for item in screens if SettingsWindow._screen_geometry(item) ==
+                       (region.x, region.y, region.width, region.height)), None)
+        if screen is None and sys.platform == 'darwin':
+            # Same primary-first mapping used by the Settings display picker.
+            ordered = sorted(screens, key=lambda item: item is not QApplication.primaryScreen())
+            index = layout.regions.index(region)
+            if index < len(ordered):
+                screen = ordered[index]
+        name = screen.name().strip() if screen is not None else ''
+        if name and name.lower() not in {'unknown', 'unnamed'}:
+            return display_name(name)
+        if region.name.startswith('display-'):
+            return f'Display {layout.regions.index(region) + 1}'
+        return display_name(region.name)
+
+    def _sync_tray(self):
+        if self.tray is not None:
+            self.tray.refresh()
+
+    def can_toggle_input(self):
+        return not (self.closing or self.frame_error is not None or
+                    self.settings_window is not None or self.diagnostic_window is not None or
+                    not self.runtime.started or self.runtime.calibration_session.active)
+
     def _update_pause_button(self):
-        desired = "Resume" if self.runtime.paused else "Pause"
+        self._sync_tray()
+        desired = "Start" if self.runtime.paused else "Pause"
         if self.pause_button.text() == desired:
             return
         if self.runtime.paused:
-            self.pause_button.setText("Resume")
+            self.pause_button.setText("Start")
             self.pause_button.setObjectName("primary")
         else:
             self.pause_button.setText("Pause")
@@ -418,11 +469,13 @@ class ControllerWindow(QMainWindow):
         self.pause_button.style().polish(self.pause_button)
 
     def toggle_pause(self):
-        if (self.frame_error is not None or self.settings_window is not None or
-                not self.runtime.started or self.runtime.calibration_session.active):
+        if not self.can_toggle_input():
+            return
+        if not self._wake_perception():
             return
         self.runtime.toggle_paused()
         self._update_pause_button()
+        self._suspend_if_idle()
 
     def space_action(self):
         if self.runtime.calibration_session.active:
@@ -454,7 +507,7 @@ class ControllerWindow(QMainWindow):
         try:
             complete = self.runtime.capture_calibration()
             if complete:
-                self.calibration_feedback = 'Calibration saved locally. Ready for next launch. Press Resume to test.'
+                self.calibration_feedback = 'Calibration saved locally. Ready for next launch. Press Start to test.'
             elif session.index == before:
                 self.calibration_feedback = ('Mouse hand not detected clearly. Keep the whole hand visible; '
                                              'check Mouse hand / Swap hands in Settings if needed.')
@@ -525,6 +578,7 @@ class ControllerWindow(QMainWindow):
             self.settings_window.debug_recording_requested.connect(self._record_from_settings)
         self.settings_window.destroyed.connect(self._settings_closed)
         self.settings_window.show()
+        self._sync_tray()
 
     def _record_from_settings(self):
         self.settings_window = None
@@ -555,6 +609,7 @@ class ControllerWindow(QMainWindow):
             self.diagnostic_window = DiagnosticWindow(diagnostic_runtime)
             self.diagnostic_window.closed.connect(self._diagnostics_closed)
             self.diagnostic_window.show()
+            self._sync_tray()
             self.help_label.setText('Controller paused. Close Debug recording to return here.')
         except Exception:
             self._diagnostics_closed()
@@ -567,6 +622,8 @@ class ControllerWindow(QMainWindow):
         try:
             self.runtime.set_paused(True)
             self.runtime.start()
+            self.perception_suspended = False
+            self.runtime.preview_enabled = not self.hidden_in_tray
             self._refresh_static_runtime_labels()
             self.frame_error = None
             self.pause_button.setEnabled(True)
@@ -574,6 +631,7 @@ class ControllerWindow(QMainWindow):
             self.smoothed_fps = 0
             self._update_pause_button()
             self.timer.start(16)
+            self._suspend_if_idle()
         except Exception as exc:
             self.show_runtime_error(exc)
 
@@ -595,11 +653,14 @@ class ControllerWindow(QMainWindow):
 
     def _settings_closed(self):
         self.settings_window = None
+        self._sync_tray()
         if not self.closing and self.runtime.started and self.diagnostic_window is None:
             self.last_frame_time = None
             self.smoothed_fps = 0.0
             self.fps_label.setText("Processing · -- FPS")
             self.timer.start(16)
+
+        self._suspend_if_idle()
 
     def _reload_after_settings(self):
         debug = bool(getattr(self.settings_window, 'debug_view', self.debug_toggle).isChecked())
@@ -618,6 +679,8 @@ class ControllerWindow(QMainWindow):
             if open_recording:
                 return  # Recorder opens the camera; avoid opening it twice.
             self.runtime.start()
+            self.perception_suspended = False
+            self.runtime.preview_enabled = not self.hidden_in_tray
             self.frame_error = None
             self.last_frame_time = None
             self.smoothed_fps = 0.0
@@ -627,6 +690,7 @@ class ControllerWindow(QMainWindow):
             self.calibrate_button.setEnabled(True)
             self._update_pause_button()
             self.timer.start(16)
+            self._suspend_if_idle()
         except Exception as exc:
             self.show_runtime_error(exc)
 
@@ -635,7 +699,7 @@ class ControllerWindow(QMainWindow):
             return
         key = event.key()
         if key == Qt.Key.Key_Escape:
-            self.close()
+            self.hide_to_tray()
         elif key == Qt.Key.Key_P:
             self.toggle_pause()
         elif key == Qt.Key.Key_C:
@@ -647,14 +711,92 @@ class ControllerWindow(QMainWindow):
         else:
             super().keyPressEvent(event)
 
-    def closeEvent(self, event: QCloseEvent):
+    def _suspend_if_idle(self):
+        if (not self.hidden_in_tray or not self.runtime.paused or self.perception_suspended
+                or self.frame_error is not None or self.settings_window is not None
+                or self.diagnostic_window is not None or self.closing):
+            return
+        self.timer.stop()
+        try:
+            self.runtime.suspend_perception()
+            self.perception_suspended = True
+            self.camera_label.clear()
+        except Exception as exc:
+            self.show_runtime_error(exc)
+
+    def _wake_perception(self):
+        if not self.perception_suspended:
+            return True
+        try:
+            self.runtime.wake_perception()
+            self.perception_suspended = False
+            self.last_frame_time = None
+            self.smoothed_fps = 0.0
+            self.timer.start(16)
+            return True
+        except Exception as exc:
+            self.perception_suspended = False
+            self.show_runtime_error(exc)
+            return False
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self.hidden_in_tray:
+            self.hidden_in_tray = False
+            self.runtime.preview_enabled = True
+            if self.frame_error is None and self.settings_window is None and self.diagnostic_window is None:
+                self._wake_perception()
+
+    def show_controller(self):
+        self.hidden_in_tray = False
+        self.runtime.preview_enabled = True
+        if self.frame_error is None and self.settings_window is None and self.diagnostic_window is None:
+            self._wake_perception()
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def hide_to_tray(self):
+        if self.closing:
+            return
+        if self.tray is None or not self.tray.available():
+            self.showMinimized()
+            return
+        self.hidden_in_tray = True
+        self.runtime.preview_enabled = False
+        self.hide()
+        self._suspend_if_idle()
+
+    def quit_application(self):
+        self.shutdown()
+        self.close()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+
+    def shutdown(self):
+        if self.closing:
+            return
         self.closing = True
         self.timer.stop()
-        if self.diagnostic_window is not None:
-            self.diagnostic_window.close()
-        self.runtime.close()
-        if self.settings_window is not None:
-            self.settings_window.close()
+        # Attempt every cleanup even if a child window fails to close.
+        errors = []
+        for operation in (
+            lambda: self.runtime.set_paused(True),
+            lambda: self.diagnostic_window.close() if self.diagnostic_window is not None else None,
+            self.runtime.close,
+            lambda: self.settings_window.close() if self.settings_window is not None else None,
+            lambda: self.tray.icon.hide() if self.tray is not None else None,
+        ):
+            try:
+                operation()
+            except Exception as exc:
+                errors.append(str(exc))
+        if errors:
+            print('[shutdown] ' + '; '.join(errors), file=sys.stderr, flush=True)
+
+    def closeEvent(self, event: QCloseEvent):
+        self.shutdown()
         event.accept()
         app = QApplication.instance()
         if app is not None:
@@ -693,11 +835,11 @@ def main(argv=None) -> int:
                                            250 if value >= 1 else 1))
         cv2.destroyAllWindows()
         app.processEvents()
-        window = ControllerWindow(runtime)
+        window = ControllerWindow(runtime, enable_tray=True)
         window.show()
         app.processEvents()
         if args.quit_after is not None:
-            QTimer.singleShot(max(1, int(args.quit_after * 1000)), window.close)
+            QTimer.singleShot(max(1, int(args.quit_after * 1000)), window.quit_application)
         return app.exec()
     except Exception as exc:
         runtime.close()
@@ -709,12 +851,12 @@ def main(argv=None) -> int:
         if runtime.profile is None:
             QMessageBox.critical(None, "VisionControl could not start", str(exc))
             return 1
-        window = ControllerWindow(runtime)
+        window = ControllerWindow(runtime, enable_tray=True)
         window.show()
         app.processEvents()
         QTimer.singleShot(0, lambda error=exc: window.show_runtime_error(error))
         if args.quit_after is not None:
-            QTimer.singleShot(max(1, int(args.quit_after * 1000)), window.close)
+            QTimer.singleShot(max(1, int(args.quit_after * 1000)), window.quit_application)
         return app.exec()
 
 

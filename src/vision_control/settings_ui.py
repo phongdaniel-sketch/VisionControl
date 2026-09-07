@@ -71,7 +71,7 @@ class SettingsWindow(QMainWindow):
         self.start_paused = QCheckBox("Always start paused")
         self.start_paused.setChecked(desktop.start_paused)
         self._describe(self.start_paused,
-                       "Start without sending mouse or keyboard input until you press Resume.")
+                       "Start without sending mouse or keyboard input until you press Start.")
         self.mouse_hand = QComboBox()
         self.mouse_hand.addItems(["Right", "Left"])
         self.mouse_hand.setCurrentText(profile.mouse_hand)
@@ -485,7 +485,7 @@ class SettingsWindow(QMainWindow):
     def _general_page(self):
         group, form = self._form_group("Startup and hand roles")
         form.addRow(self.start_paused)
-        startup_hint = QLabel('On: wait for Resume before controlling the PC. Off: control may start as soon as the app opens.')
+        startup_hint = QLabel('On: wait for Start before controlling the PC. Off: control may start as soon as the app opens.')
         startup_hint.setWordWrap(True)
         startup_hint.setObjectName('muted')
         form.addRow(startup_hint)

@@ -395,3 +395,51 @@ camera-enumeration dependency. Windows verification: 146 tests, compileall and
 pip check passed. macOS runtime, permissions, camera and packaging remain untested
 on this host; see docs/plans/macos-main-verification.md for the acceptance steps.
 This entry supersedes earlier notes that the UI changes were not yet pushed.
+
+
+## System tray and Start label (2026-09-07)
+
+Desktop launcher now installs a macOS menu-bar / Windows tray icon with
+Open Controller, Start/Pause, Settings and Quit. Icons and menu status distinguish
+Active, Paused and Error. Escape hides Controller in the tray; if no tray exists,
+it minimizes the window. Window close, Alt+F4, Cmd+Q, Quit and --quit-after shut
+down the application. Application quit also runs
+idempotent cleanup, attempts all child/runtime cleanup and removes the tray icon.
+Hidden processing continues; preview painting is skipped. Errors reopen Controller.
+Start is blocked during Settings, diagnostics, calibration, shutdown and errors.
+All user-facing Resume labels in Controller/Settings are now Start.
+
+Validation: 153 deterministic tests passed on macOS; compileall and diff check
+passed. Native Cocoa smoke with simulated input verified tray availability,
+hide/reopen, running timer while hidden, Start/Pause and shutdown/icon removal.
+Controller screenshot verified Start label. No new real-camera/active-input
+acceptance or packaged/Windows tray test was performed for this change.
+Restart the source app to load it; older packaged apps require rebuilding.
+See docs/requirements/system-tray.md and docs/plans/system-tray.md.
+
+
+## Tray resource optimization (2026-09-07)
+
+Supersedes the earlier note that hidden paused processing continues. Hidden
+Active retains inference/input and freshness safety, but skips runtime overlays,
+periodic debug logs, preview painting and status widget updates. Hidden Paused
+releases input, closes camera/inference resources, clears the last snapshot and
+stops the frame timer. Start reopens perception then enables input with a fresh
+acceptance timestamp. Opening Controller reopens preview while remaining paused.
+Profile/calibration stay in memory. Visible paused preview is intentionally kept.
+Wake errors restore a visible safe error state; Settings/diagnostics keep their
+exclusive handoff. No personal settings or recordings changed.
+
+Validation: 158 deterministic tests, compileall and diff check passed. Three
+lifecycle tests also passed with native Cocoa and mocked camera/input resources.
+Actual camera wake latency, CPU/power savings and Windows acceptance are unmeasured.
+Restart source app to load this change. See docs/plans/tray-idle.md.
+
+## Tray close behavior correction (2026-09-07)
+
+Escape now hides Controller in the menu bar/system tray. Window close, Alt+F4,
+Cmd+Q and tray Quit shut down the application, release input, stop camera/workers
+and remove the tray icon. If a system tray is unavailable, Escape minimizes the
+window. This supersedes the earlier close/hide wording above. Validation: 160
+tests, compileall and diff check passed; native macOS smoke verified Escape hide,
+reopen and window-close shutdown.

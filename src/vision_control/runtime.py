@@ -114,6 +114,38 @@ class VisionRuntime:
             self.close()
             raise
 
+    def suspend_perception(self):
+        """Release input before relinquishing camera/model ownership."""
+        self.set_paused(True)
+        if self.perception is not None:
+            self.perception.close()
+            self.perception = None
+        if self.camera is not None:
+            self.camera.close()
+            self.camera = None
+        if self.tracker is not None:
+            self.tracker.close()
+            self.tracker = None
+        self.last_snapshot = None
+
+    def wake_perception(self):
+        """Resume preview without reloading profiles or enabling input."""
+        self.set_paused(True)
+        self.last_snapshot = None
+        try:
+            if self.async_mode:
+                from .perception_worker import LatestPerception
+                self.perception = LatestPerception(
+                    self.camera_factory, self.tracker_factory, self.camera_index)
+                self.perception.start()
+            else:
+                self.tracker = self.tracker_factory()
+                self.camera = self.camera_factory(index=self.camera_index)
+                self.camera.open()
+        except Exception:
+            self.suspend_perception()
+            raise
+
     def process_frame(self, *, status_overlay=False) -> RuntimeSnapshot:
         if not self.started:
             raise RuntimeError("VisionRuntime has not been started")
@@ -221,11 +253,12 @@ class VisionRuntime:
             },
         )
         self.last_snapshot = snapshot
-        if status_overlay:
+        preview_enabled = getattr(self, "preview_enabled", True)
+        if preview_enabled and status_overlay:
             self.overlay.draw(frame, **self._overlay_values(snapshot))
-        elif self.landmarks_enabled:
+        elif preview_enabled and self.landmarks_enabled:
             self.overlay.draw_landmarks(frame, snapshot.hands)
-        if self.landmarks_enabled and self.profile.pointer_mode in {"index_fingertip", "thumb_lock", "palm"} and mouse_hand is not None:
+        if preview_enabled and self.landmarks_enabled and self.profile.pointer_mode in {"index_fingertip", "thumb_lock", "palm"} and mouse_hand is not None:
             self.overlay.draw_fingertip(frame, mouse_hand)
             if self.profile.pointer_mode == 'palm':
                 x, y, _ = pointer_point(mouse_hand, 'palm')
@@ -235,7 +268,7 @@ class VisionRuntime:
         if self.perception is not None:
             snapshot.timings_ms['result_age'] = (time.monotonic()-sample_time)*1000
             snapshot.timings_ms['runtime_total'] += read_ms+track_ms
-        if self.debug_enabled and now - self.last_log >= 1.0:
+        if preview_enabled and self.debug_enabled and now - self.last_log >= 1.0:
             labels = [(hand.label, round(hand.confidence, 2))
                       for hand in snapshot.hands]
             print(
