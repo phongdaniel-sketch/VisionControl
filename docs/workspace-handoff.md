@@ -366,3 +366,14 @@ frames, drag hold time, scroll deadzone and confidence controls are no longer
 shown; their stored fields remain compatible. Runtime behavior and personal
 settings are unchanged. Verified 146 tests, compileall, diff check and an
 offscreen render of the grouped page. Restart the app to load the new layout.
+
+
+## Shared main integration (2026-09-07)
+
+Integrated windows commit 66e93d9 into main after fetching remote PR #1.
+Main is the shared Windows/macOS source branch; build platform artifacts separately.
+Review found platform-guarded Windows capture settings and a Darwin AVFoundation
+camera-enumeration dependency. Windows verification: 146 tests, compileall and
+pip check passed. macOS runtime, permissions, camera and packaging remain untested
+on this host; see docs/plans/macos-main-verification.md for the acceptance steps.
+This entry supersedes earlier notes that the UI changes were not yet pushed.

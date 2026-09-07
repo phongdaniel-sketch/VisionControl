@@ -7,7 +7,13 @@ When resuming development in a new VS Code workspace, read
 
 ## MVP status
 
-The deterministic controller core is implemented. Webcam runtime requires Python dependencies from `requirements.txt` and a Windows input permission setup.
+`main` is the shared source branch for Windows 11 and macOS. Use temporary feature
+branches for changes; build each platform's artifact on that platform.
+
+The deterministic controller core is implemented. Install dependencies from
+`requirements.txt` before running. The latest integration passes 146 tests on
+Windows; current macOS camera, input and packaging acceptance remains pending.
+See [macOS verification](docs/plans/macos-main-verification.md).
 
 ## Setup
 
