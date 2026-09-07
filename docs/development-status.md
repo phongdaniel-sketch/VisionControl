@@ -340,3 +340,47 @@ user_profile.json.pre-pointer-sources.bak preserves the prior configuration.
 Verification: 140 tests passed, compileall and diff check passed; offscreen unified
 Settings smoke passed (two options, one Gestures menu, no engine enable toggle).
 Real palm calibration/click/scroll acceptance is still pending user testing.
+
+## Settings clarity update
+
+Removed I8/T4 text while retaining fingertip color rings and palm marker.
+Settings checkboxes now show explicit On/Off text plus switch position/checkmark;
+state is no longer conveyed by color alone. Gestures uses Controls, Keyboard,
+Actions and Fine tuning tabs. Actions offer named choices and editable shortcuts,
+without changing saved identifiers. Numeric fields are compact; camera/general
+instructions shortened; unused Voice placeholder hidden.
+Verified rendered Settings screenshots with Windows font, switch state and
+configuration/action round trips. Final verification: 140 tests, compileall and
+diff check passed. No gesture timing, camera,
+calibration or personal mappings changed by this UI update.
+
+
+## Camera/preview Settings and drag-volume arbitration
+
+Camera selection now lists device names with capture-backend indices; Logitech
+BRIO and virtual cameras enumerated successfully on Windows. Refresh preserves
+an unplugged selection. Skeleton/Guide preferences persist locally; Debug stays
+session-only and starts Off. Preview & Debug replaces the redundant Keyboard
+page and the four main-window controls. Save & open Debug recording pauses and
+hands the camera to the diagnostic window; Start is still required to record.
+The packaged data list now includes the Gesture v1 default profile.
+
+Volume now requires four extended fingers and clear thumb/index separation.
+Approaching pinch or curling fingers exits volume without losing drag readiness;
+assigned OK retains priority, and an active drag cannot be taken over by volume.
+Drag confirmation stays 100 ms. Both pointer sources have regression coverage.
+146 deterministic tests passed; compileall/diff checks and offscreen Settings
+render passed. Physical drag/volume acceptance and a new exe build are pending.
+Changes are local and have not been pushed to GitHub.
+
+
+## Unified gesture fine tuning
+
+Removed Advanced navigation and its page. Gestures > Fine tuning now groups the
+four active pinch controls under Click & Drag, motion spacing/sensitivity under
+Scroll / Zoom / Volume, and confirmation/corner timing under Keys & Symbols.
+Pose confirmation is explicitly shared with motion gestures. Legacy activation
+frames, drag hold time, scroll deadzone and confidence controls are no longer
+shown; their stored fields remain compatible. Runtime behavior and personal
+settings are unchanged. Verified 146 tests, compileall, diff check and an
+offscreen render of the grouped page. Restart the app to load the new layout.

@@ -330,3 +330,39 @@ Palm and Index fingertip; Gestures replaces both old gesture pages. Palm does no
 thumb-lock, fingertip does. Palm calibration is separate and initially required;
 keep existing fingertip file. 140 tests and unified Settings smoke passed. See
 requirements/pointer-source-unification.md. Restart the app to load this change.
+
+Settings clarity: no I8/T4 captions; color markers retained. On/Off switches have
+text + thumb position. Gestures grouped into four tabs; named action picker still
+accepts custom shortcuts. Voice placeholder hidden. UI appearance inspected via
+offscreen renders with Windows font. Restart to load UI changes.
+
+
+## Camera/preview Settings and drag-volume arbitration
+
+Camera selection now lists device names with capture-backend indices; Logitech
+BRIO and virtual cameras enumerated successfully on Windows. Refresh preserves
+an unplugged selection. Skeleton/Guide preferences persist locally; Debug stays
+session-only and starts Off. Preview & Debug replaces the redundant Keyboard
+page and the four main-window controls. Save & open Debug recording pauses and
+hands the camera to the diagnostic window; Start is still required to record.
+The packaged data list now includes the Gesture v1 default profile.
+
+Volume now requires four extended fingers and clear thumb/index separation.
+Approaching pinch or curling fingers exits volume without losing drag readiness;
+assigned OK retains priority, and an active drag cannot be taken over by volume.
+Drag confirmation stays 100 ms. Both pointer sources have regression coverage.
+146 deterministic tests passed; compileall/diff checks and offscreen Settings
+render passed. Physical drag/volume acceptance and a new exe build are pending.
+Changes are local and have not been pushed to GitHub.
+
+
+## Unified gesture fine tuning
+
+Removed Advanced navigation and its page. Gestures > Fine tuning now groups the
+four active pinch controls under Click & Drag, motion spacing/sensitivity under
+Scroll / Zoom / Volume, and confirmation/corner timing under Keys & Symbols.
+Pose confirmation is explicitly shared with motion gestures. Legacy activation
+frames, drag hold time, scroll deadzone and confidence controls are no longer
+shown; their stored fields remain compatible. Runtime behavior and personal
+settings are unchanged. Verified 146 tests, compileall, diff check and an
+offscreen render of the grouped page. Restart the app to load the new layout.

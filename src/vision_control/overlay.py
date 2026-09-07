@@ -56,10 +56,6 @@ class Overlay:
         tx, ty, _ = hand.landmarks[4]
         thumb = (int(tx * width), int(ty * height))
         self.cv2.circle(frame, thumb, 10, (255, 220, 0), 2, self.cv2.LINE_AA)
-        self.cv2.putText(frame, 'I8', (point[0]+10, point[1]-10),
-                         self.cv2.FONT_HERSHEY_SIMPLEX, .45, (0,230,255), 1)
-        self.cv2.putText(frame, 'T4', (thumb[0]+10, thumb[1]+18),
-                         self.cv2.FONT_HERSHEY_SIMPLEX, .45, (255,220,0), 1)
         return frame
 
     def draw_calibration(self, frame, calibration):

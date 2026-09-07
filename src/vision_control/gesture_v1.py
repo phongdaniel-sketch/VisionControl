@@ -20,6 +20,7 @@ class Features:
     symbol: str
     cluster: bool
     thumb_extended: bool = False
+    pinch_ratio: float = 1.
 
 
 def features(hand, size, cfg):
@@ -54,7 +55,9 @@ def features(hand, size, cfg):
                     math.atan2(p[5][1] - p[17][1], p[5][0] - p[17][0]),
                     states, thumb, pinch, fist, symbol, cluster,
                     (_joint_angle(p[2], p[3], p[4]) or 0) >= 150 and
-                    distance(p[4], p[0]) > distance(p[3], p[0]) + .02 * scale)
+                    distance(p[4], p[0]) > distance(p[3], p[0]) + .02 * scale,
+                    distance(hand.landmarks[4], hand.landmarks[8]) /
+                    max(distance(hand.landmarks[0], hand.landmarks[9]), .001))
 
 
 class Stability:
@@ -158,6 +161,16 @@ class PrimaryHand:
         if mouse.left_down or mouse.right_down or mouse.middle_down:
             self.mode = ''; self.gate = Stability(); self.switch_gate = Stability()
             return False  # Existing drag owns the sequence, including release.
+        # Volume must not swallow the separation that prepares a pinch drag.
+        opened = getattr(mouse.profile, 'thresholds', {}).get('pinch_open_ratio', .45)
+        if not f.pinch and f.pinch_ratio > opened:
+            mouse.thumb_control.ready_at = now
+        if self.mode == 'volume' or self.gate.name == 'volume':
+            if f.pinch or not all(f.fingers) or f.pinch_ratio <= max(.75, opened + .15):
+                self.mode = ''; self.gate = Stability()
+                self.status = 'Pinch priority'
+                if not (f.symbol and self.cfg['symbols'].get(f.symbol)):
+                    return False
         corner = self.corner_at(mouse.layout.target(self.adapter.position()))
         action = self.cfg['corners'].get(corner, '')
         if corner != self.corner or now - self.corner_started > self.cfg['corner_seconds']:
@@ -228,7 +241,9 @@ class PrimaryHand:
             return 'scroll'
         if self.cfg['zoom'] and ((all(f.fingers) and f.thumb == 'open' and f.spread >= self.cfg['wide_spread']) or (f.cluster and not f.fist)):
             return 'zoom'
-        if self.cfg['volume'] and f.thumb == 'open' and not f.pinch and self.cfg['close_spread'] < f.spread < self.cfg['wide_spread'] and f.radius < 1.2:
+        if (self.cfg['volume'] and f.thumb == 'open' and not f.pinch and
+                f.pinch_ratio > .75 and all(f.fingers) and
+                self.cfg['close_spread'] < f.spread < self.cfg['wide_spread'] and f.radius < 1.2):
             return 'volume'
         return ''
 

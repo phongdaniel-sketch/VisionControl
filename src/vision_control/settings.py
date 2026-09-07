@@ -22,6 +22,8 @@ EDITABLE_GESTURES = (
 class DesktopSettings:
     camera_index: int = field(default_factory=lambda: 0 if sys.platform == "win32" else 1)
     start_paused: bool = False
+    show_skeleton: bool = True
+    show_guide: bool = True
 
 
 def load_desktop_settings(path: str | Path) -> DesktopSettings:
@@ -33,7 +35,8 @@ def load_desktop_settings(path: str | Path) -> DesktopSettings:
         camera_index = int(raw.get("camera_index", DesktopSettings().camera_index))
         if camera_index < 0:
             raise ValueError("Camera index must be zero or greater")
-        return DesktopSettings(camera_index, bool(raw.get("start_paused", False)))
+        return DesktopSettings(camera_index, bool(raw.get("start_paused", False)),
+                               bool(raw.get('show_skeleton', True)), bool(raw.get('show_guide', True)))
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         raise ValueError(f"Invalid desktop settings: {exc}") from exc
 

@@ -18,6 +18,7 @@ from .settings import (
     load_desktop_settings, save_desktop_settings, save_user_profile,
 )
 from .ui_theme import APP_STYLE, humanize
+from .settings_widgets import StateCheckBox as QCheckBox
 
 
 ROOT = resource_root()
@@ -28,6 +29,7 @@ APP_SETTINGS = runtime_data_dir() / "app_settings.json"
 
 class SettingsWindow(QMainWindow):
     settings_saved = Signal()
+    debug_recording_requested = Signal()
 
     def __init__(self, initial_page="General", parent=None):
         super().__init__(parent)
@@ -47,13 +49,22 @@ class SettingsWindow(QMainWindow):
         self.raw_profile = json.loads(profile_path.read_text(encoding="utf-8"))
         self._build_controls(desktop, profile)
         self._build_layout()
+        for control in self.findChildren(QSpinBox) + self.findChildren(QDoubleSpinBox):
+            control.setMinimumWidth(120)
+            control.setMaximumWidth(180)
         self.open_page(initial_page)
         self._update_monitor_state()
 
     def _build_controls(self, desktop, profile):
-        self.camera = QSpinBox()
-        self.camera.setRange(0, 20)
-        self.camera.setValue(desktop.camera_index)
+        from .camera_devices import CameraPicker
+        self.camera = CameraPicker(desktop.camera_index)
+        self.show_skeleton = QCheckBox('Hand skeleton and colored points')
+        self.show_skeleton.setChecked(desktop.show_skeleton)
+        self.show_guide = QCheckBox('Gesture guide beside the camera')
+        self.show_guide.setChecked(desktop.show_guide)
+        self.debug_view = QCheckBox('Debug details (this session)')
+        self.debug_view.setChecked(bool(getattr(getattr(self.parent(), 'runtime', None), 'debug_enabled', False)))
+        self.open_recording_after_save = False
         self._describe(self.camera,
                        "Camera device index. Try 0 first on Windows; choose the index "
                        "of your physical camera if a virtual camera is also installed.")
@@ -73,7 +84,7 @@ class SettingsWindow(QMainWindow):
         self._describe(self.pointer_mode,
                        "Palm follows palm center without thumb locking. Index fingertip locks when the thumb opens. "
                        "Both use the same gestures; calibration is saved separately.")
-        self.swap_hands = QCheckBox("Swap detected hands for mirrored camera")
+        self.swap_hands = QCheckBox("Swap left / right hands")
         self.swap_hands.setChecked(profile.swap_hands)
         self._describe(self.swap_hands,
                        "Corrects Left/Right labels when the camera preview is mirrored.")
@@ -377,10 +388,9 @@ class SettingsWindow(QMainWindow):
         builders = {
             "General": self._general_page, "Camera": self._camera_page,
             "Mouse": self._mouse_page, "Gestures": self._current_gestures_page,
-            "Keyboard": self._keyboard_page, "Displays": self._displays_page,
-            "Advanced": self._advanced_page,
+            "Preview & Debug": self._preview_page, "Displays": self._displays_page,
         }
-        for name in ("General", "Camera", "Mouse", "Gestures", "Keyboard",
+        for name in ("General", "Camera", "Mouse", "Gestures", "Preview & Debug",
                      "Displays"):
             self._add_nav(name, nav_layout, builders[name]())
         self.voice_button = QPushButton("  Voice · Coming soon")
@@ -389,7 +399,7 @@ class SettingsWindow(QMainWindow):
         self._describe(self.voice_button,
                        "Voice control is planned for a future release.")
         nav_layout.addWidget(self.voice_button)
-        self._add_nav("Advanced", nav_layout, builders["Advanced"]())
+        self.voice_button.hide()
         nav_layout.addStretch()
         content.addWidget(sidebar)
         content.addWidget(self.pages, 1)
@@ -417,7 +427,7 @@ class SettingsWindow(QMainWindow):
         self.setCentralWidget(root)
 
     def _add_nav(self, name, layout, page):
-        button = QPushButton(f"  {name}")
+        button = QPushButton("  " + name.replace("&", "&&"))
         button.setObjectName("nav")
         button.setCheckable(True)
         self._describe(button, f"Open the {name} settings page.")
@@ -429,7 +439,12 @@ class SettingsWindow(QMainWindow):
 
     def _current_gestures_page(self):
         from .gesture_v1_ui import GestureV1Panel
-        self.v1_panel = GestureV1Panel(self.raw_profile.get('gesture_v1'))
+        self.v1_panel = GestureV1Panel(self.raw_profile.get('gesture_v1'), (
+            ('Pinch start distance (ratio)', self.pinch_close),
+            ('Pinch release distance (ratio)', self.pinch_open),
+            ('Drag start confirmation', self.pinch_confirm),
+            ('Drag release confirmation', self.pinch_release),
+        ))
         return self._page('Gestures', 'Hand actions and shortcuts for both pointer modes', self.v1_panel)
 
     def _v1_mapping_state(self, enabled):
@@ -470,17 +485,50 @@ class SettingsWindow(QMainWindow):
     def _general_page(self):
         group, form = self._form_group("Startup and hand roles")
         form.addRow(self.start_paused)
+        startup_hint = QLabel('On: wait for Resume before controlling the PC. Off: control may start as soon as the app opens.')
+        startup_hint.setWordWrap(True)
+        startup_hint.setObjectName('muted')
+        form.addRow(startup_hint)
         form.addRow(self.swap_hands)
-        return self._page("General", "Safe startup and mirrored-camera behavior.", group)
+        hint = QLabel('Enable hand swapping only if the app labels your left and right hands incorrectly.')
+        hint.setWordWrap(True)
+        hint.setObjectName('muted')
+        form.addRow(hint)
+        return self._page("General", "Choose how the app starts and identifies your hands.", group)
 
     def _camera_page(self):
         group, form = self._form_group("Camera")
-        form.addRow("Camera index", self.camera)
-        notice = QLabel("The Controller owns the live camera stream. Saving a new camera index restarts tracking in a paused state.")
+        form.addRow("Camera", self.camera)
+        refresh = QPushButton('Refresh camera list')
+        refresh.clicked.connect(lambda: self.camera.refresh())
+        form.addRow(refresh)
+        notice = QLabel("Choose your webcam by name. If unplugged, its saved number stays listed. Saving restarts the camera with control paused.")
         notice.setObjectName("muted")
         notice.setWordWrap(True)
         form.addRow(notice)
         return self._page("Camera", "Choose the local camera used for tracking.", group)
+
+    def _preview_page(self):
+        group, form = self._form_group('Preview and diagnostics')
+        form.addRow(self.show_skeleton)
+        form.addRow(self.show_guide)
+        form.addRow(self.debug_view)
+        self.recording_button = QPushButton('Save && open Debug recording')
+        self.recording_button.setEnabled(self.debug_view.isChecked() and self.parent() is not None)
+        self.debug_view.toggled.connect(lambda enabled: self.recording_button.setEnabled(enabled and self.parent() is not None))
+        self.recording_button.clicked.connect(self._request_recording)
+        form.addRow(self.recording_button)
+        note = QLabel('Debug starts Off each time you launch the app. Recording opens a test window; press Start there to record. Open these Settings from the Controller to use recording.')
+        note.setWordWrap(True)
+        form.addRow(note)
+        return self._page('Preview & Debug', 'Choose what to show and open the local recorder.', group)
+
+    def _request_recording(self):
+        self.open_recording_after_save = True
+        if self.save():
+            self.debug_recording_requested.emit()
+        else:
+            self.open_recording_after_save = False
 
     def _mouse_page(self):
         group, form = self._form_group("Mouse control")
@@ -631,35 +679,6 @@ class SettingsWindow(QMainWindow):
             group,
         )
 
-    def _advanced_page(self):
-        body = QWidget()
-        layout = QVBoxLayout(body)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-        recognition, recognition_form = self._form_group("Gesture recognition")
-        recognition_form.addRow("Minimum confidence", self.gesture_confidence)
-        recognition_form.addRow("Activation frames", self.gesture_on_frames)
-        recognition_form.addRow("Pinch start ratio", self.pinch_close)
-        recognition_form.addRow("Pinch release ratio", self.pinch_open)
-        recognition_form.addRow("Pinch confirmation", self.pinch_confirm)
-        recognition_form.addRow('Pinch release confirmation', self.pinch_release)
-        pointer, pointer_form = self._form_group("Pointer gesture timing")
-        pointer_form.addRow("Drag hold time", self.drag_hold)
-        pointer_form.addRow("Scroll movement deadzone", self.scroll_deadzone)
-        privacy = QLabel(
-            "Recommended defaults balance response and false triggers. Camera frames remain "
-            "local; profiles and calibration are stored in the OS application-data directory.")
-        privacy.setWordWrap(True)
-        privacy.setObjectName("muted")
-        layout.addWidget(recognition)
-        layout.addWidget(pointer)
-        layout.addWidget(privacy)
-        return self._page(
-            "Advanced",
-            "Fine-tune implemented recognition thresholds and gesture timing.",
-            body,
-        )
-
     def open_page(self, name):
         selected = name if name in self.nav_buttons else "General"
         button = self.nav_buttons[selected]
@@ -680,6 +699,9 @@ class SettingsWindow(QMainWindow):
         self.v1_panel.load(self.raw_profile.get('gesture_v1'))
         profile = load_profile(DEFAULT_PROFILE)
         self.camera.setValue(DesktopSettings().camera_index)
+        self.show_skeleton.setChecked(True)
+        self.show_guide.setChecked(True)
+        self.debug_view.setChecked(False)
         self.start_paused.setChecked(True)
         self.mouse_hand.setCurrentText(profile.mouse_hand)
         self._set_combo_data(self.pointer_mode, 'thumb_lock' if profile.pointer_mode in {'thumb_lock', 'index_fingertip'} else 'palm')
@@ -776,7 +798,8 @@ class SettingsWindow(QMainWindow):
             raw['gesture_v1'] = self.v1_panel.value()
             save_user_profile(USER_PROFILE, raw)
             save_desktop_settings(APP_SETTINGS, DesktopSettings(
-                self.camera.value(), self.start_paused.isChecked()))
+                self.camera.value(), self.start_paused.isChecked(),
+                self.show_skeleton.isChecked(), self.show_guide.isChecked()))
             self.raw_profile = raw
             self.settings_saved.emit()
             self.close()

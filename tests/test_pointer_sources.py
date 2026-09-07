@@ -82,3 +82,35 @@ class PointerSourceTests(unittest.TestCase):
         self.assertNotEqual(pointer_point(h,'palm'),pointer_point(h,'thumb_lock'))
         self.assertEqual(calibration_filename('thumb_lock'),'mouse_calibration.json')
         self.assertEqual(calibration_filename('palm'),'mouse_calibration_palm.json')
+
+    def test_volume_hands_off_to_drag_without_losing_preparation(self):
+        for mode in ('palm','thumb_lock'):
+            self.mouse=MouseController(self.adapter,replace(self.profile,pointer_mode=mode),screen=(1920,1080))
+            p=PrimaryHand(self.adapter,config(DEFAULTS))
+            volume=sample(thumb='open',spread=.55,radius=.8,pinch_ratio=1.)
+            for i in range(5):p.update(volume,i*.1,self.mouse)
+            self.assertEqual(p.mode,'volume')
+            contact=replace(volume,pinch=True,pinch_ratio=.1,fingers=(False,False,False,False))
+            for t in (.5,.6):
+                self.assertFalse(p.update(contact,t,self.mouse))
+                self.step(pose('pinch'),t)
+            self.assertTrue(self.mouse.left_down)
+            self.assertFalse(p.update(volume,.7,self.mouse))
+            self.mouse.release_all()
+
+    def test_near_pinch_or_curled_fingers_cannot_enter_volume(self):
+        p=PrimaryHand(self.adapter,config(DEFAULTS))
+        volume=sample(thumb='open',spread=.55,radius=.8)
+        self.assertNotEqual(p.candidate(replace(volume,pinch_ratio=.6)),'volume')
+        self.assertNotEqual(p.candidate(replace(volume,fingers=(True,False,False,False))),'volume')
+
+    def test_assigned_ok_keeps_priority_when_leaving_volume(self):
+        cfg=config(DEFAULTS);cfg['symbols']['ok']='ctrl+c'
+        p=PrimaryHand(self.adapter,cfg)
+        volume=sample(thumb='open',spread=.55,radius=.8,pinch_ratio=1.)
+        for i in range(5):p.update(volume,i*.1,self.mouse)
+        self.assertEqual(p.mode,'volume')
+        ok=replace(volume,pinch=True,pinch_ratio=.1,symbol='ok',fingers=(False,True,True,True))
+        self.assertTrue(p.update(ok,.5,self.mouse))
+        self.assertEqual(p.gate.name,'symbol:ok')
+        self.assertFalse(self.mouse.left_down)
