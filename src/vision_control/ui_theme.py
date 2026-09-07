@@ -40,9 +40,14 @@ QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-butto
 QSpinBox::up-arrow, QDoubleSpinBox::up-arrow { image: url("__UP_ARROW__"); width: 12px; height: 12px; }
 QSpinBox::down-arrow, QDoubleSpinBox::down-arrow { image: url("__DOWN_ARROW__"); width: 12px; height: 12px; }
 QCheckBox { spacing: 9px; }
-QCheckBox::indicator { width: 34px; height: 18px; }
-QCheckBox::indicator:unchecked { border: 1px solid #3a4658; border-radius: 9px; background: #141c29; }
-QCheckBox::indicator:checked { border: 1px solid #3478ff; border-radius: 9px; background: #246bff; }
+QCheckBox { min-height: 32px; color: #f4f7fc; }
+QCheckBox::indicator { width: 44px; height: 24px; }
+QCheckBox::indicator:unchecked { image: url("__SWITCH_OFF__"); }
+QCheckBox::indicator:checked { image: url("__SWITCH_ON__"); }
+QCheckBox:disabled { color: #7f8da2; }
+QTabWidget::pane { border: 1px solid #34465e; border-radius: 8px; padding: 12px; }
+QTabBar::tab { background: #172235; color: #c0cddd; padding: 10px 16px; margin-right: 4px; border-bottom: 3px solid transparent; }
+QTabBar::tab:selected { background: #174b9c; color: white; border-bottom: 3px solid #8bc4ff; }
 QScrollArea { border: 0; background: transparent; }
 QScrollBar:vertical { background: #080e18; width: 10px; }
 QScrollBar::handle:vertical { background: #2a374a; border-radius: 5px; min-height: 30px; }
@@ -51,6 +56,8 @@ QToolTip { background: #111a29; color: #ffffff; border: 1px solid #33445e; }
 """
 
 APP_STYLE = (_APP_STYLE_TEMPLATE
+             .replace("__SWITCH_ON__", f"{_ASSET_ROOT}/switch-on.svg")
+             .replace("__SWITCH_OFF__", f"{_ASSET_ROOT}/switch-off.svg")
              .replace("__UP_ARROW__", f"{_ASSET_ROOT}/chevron-up.svg")
              .replace("__DOWN_ARROW__", f"{_ASSET_ROOT}/chevron-down.svg"))
 

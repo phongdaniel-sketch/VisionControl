@@ -45,6 +45,7 @@ class ControllerWindow(QMainWindow):
         self.setWindowIcon(icon)
         self.setStyleSheet(APP_STYLE)
         self._build_ui()
+        self._apply_preview_settings()
         self._refresh_static_runtime_labels()
         self._update_pause_button()
         self.timer = QTimer(self)
@@ -107,10 +108,8 @@ class ControllerWindow(QMainWindow):
         self.timing_label.setObjectName('muted')
         self.timing_label.hide()
         debug_row.addWidget(self.calibration_view_button)
-        debug_row.addWidget(self.skeleton_toggle)
-        debug_row.addWidget(self.guide_toggle)
-        debug_row.addWidget(self.debug_button)
-        debug_row.addWidget(self.debug_toggle)
+        for control in (self.skeleton_toggle, self.guide_toggle, self.debug_button, self.debug_toggle):
+            control.hide()
         debug_row.addStretch()
         layout.addLayout(debug_row)
         layout.addWidget(self.timing_label)
@@ -522,8 +521,23 @@ class ControllerWindow(QMainWindow):
             return
         self.settings_window = self.settings_factory(parent=self)
         self.settings_window.settings_saved.connect(self._reload_after_settings)
+        if hasattr(self.settings_window, 'debug_recording_requested'):
+            self.settings_window.debug_recording_requested.connect(self._record_from_settings)
         self.settings_window.destroyed.connect(self._settings_closed)
         self.settings_window.show()
+
+    def _record_from_settings(self):
+        self.settings_window = None
+        QTimer.singleShot(0, self.open_diagnostics)
+
+    def _apply_preview_settings(self, debug=False):
+        desktop = load_desktop_settings(APP_SETTINGS)
+        self.skeleton_toggle.setChecked(desktop.show_skeleton)
+        self.guide_toggle.setChecked(desktop.show_guide)
+        self.debug_toggle.setChecked(debug)
+        self.toggle_skeleton(desktop.show_skeleton)
+        self.toggle_guide(desktop.show_guide)
+        self.toggle_debug(debug)
 
     def open_diagnostics(self):
         if self.diagnostic_window is not None or self.settings_window is not None:
@@ -553,6 +567,7 @@ class ControllerWindow(QMainWindow):
         try:
             self.runtime.set_paused(True)
             self.runtime.start()
+            self._refresh_static_runtime_labels()
             self.frame_error = None
             self.pause_button.setEnabled(True)
             self.last_frame_time = None
@@ -580,13 +595,15 @@ class ControllerWindow(QMainWindow):
 
     def _settings_closed(self):
         self.settings_window = None
-        if not self.closing and self.runtime.started:
+        if not self.closing and self.runtime.started and self.diagnostic_window is None:
             self.last_frame_time = None
             self.smoothed_fps = 0.0
             self.fps_label.setText("Processing · -- FPS")
             self.timer.start(16)
 
     def _reload_after_settings(self):
+        debug = bool(getattr(self.settings_window, 'debug_view', self.debug_toggle).isChecked())
+        open_recording = bool(getattr(self.settings_window, 'open_recording_after_save', False))
         self.timer.stop()
         self.runtime.set_paused(True)
         self.runtime.close()
@@ -597,8 +614,9 @@ class ControllerWindow(QMainWindow):
                 desktop.camera_index, True, profile_path)
             if isinstance(self.runtime, VisionRuntime):
                 self.runtime.async_mode = True
-                self.runtime.debug_enabled = self.debug_toggle.isChecked()
-                self.runtime.landmarks_enabled = self.skeleton_toggle.isChecked()
+            self._apply_preview_settings(debug)
+            if open_recording:
+                return  # Recorder opens the camera; avoid opening it twice.
             self.runtime.start()
             self.frame_error = None
             self.last_frame_time = None

@@ -30,6 +30,7 @@ analysis = Analysis(
         ("docs/Loading Screen.png", "docs"),
         ("assets/ui", "assets/ui"),
         ("config/default_profile.json", "config"),
+        ("config/gesture_v1_profile.json", "config"),
         ("assets/models/hand_landmarker.task", "assets/models"),
     ] + mediapipe_datas,
     hiddenimports=mediapipe_hiddenimports,
