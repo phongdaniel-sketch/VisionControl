@@ -1,5 +1,5 @@
 from unittest.mock import patch
-from PySide6.QtWidgets import QCheckBox, QLabel
+from PySide6.QtWidgets import QCheckBox, QLabel, QLineEdit
 from PySide6.QtCore import QCoreApplication, QEvent
 import test_voice
 
@@ -22,6 +22,7 @@ class EmbeddedVoiceTests(test_voice.VoiceServiceTests):
         texts = '\n'.join(label.text() for label in panel.findChildren(QLabel))
         self.assertIn('Supported commands', texts)
         self.assertIn('Tắt app', texts)
+        self.assertIn('Thời tiết hôm nay thế nào', texts)
 
     def test_save_modified_voice_settings(self):
         panel = self.panel()
@@ -30,6 +31,17 @@ class EmbeddedVoiceTests(test_voice.VoiceServiceTests):
         self.assertTrue(panel.apply_voice())
         self.assertTrue(self.service.config['speech'])
         self.assertTrue(self.service.path.exists())
+
+    def test_weather_location_is_saved_with_voice_settings(self):
+        panel = self.panel()
+        auto = next(w for w in panel.findChildren(QCheckBox)
+                    if w.text()=='Automatically detect weather location')
+        city = next(w for w in panel.findChildren(QLineEdit)
+                    if w.placeholderText()=='Đà Nẵng')
+        auto.setChecked(False);city.setText('Hội An')
+        self.assertTrue(panel.apply_voice())
+        self.assertFalse(self.service.config['weather_auto_location'])
+        self.assertEqual(self.service.config['weather_location'], 'Hội An')
 
     def test_destroy_disconnects_status_callbacks(self):
         panel = self.panel()

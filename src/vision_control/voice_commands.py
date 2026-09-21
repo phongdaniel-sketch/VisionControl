@@ -48,6 +48,7 @@ def parse_command(text):
         'may gio roi':'time', 'bay gio la may gio':'time',
         'hom nay la ngay may':'date', 'hom nay ngay may':'date',
         'hom nay la thu may':'weekday', 'hom nay thu may':'weekday',
+        'thoi tiet hom nay the nao':'weather', 'hom nay thoi tiet the nao':'weather',
         'copy':'copy', 'sao chep':'copy', 'paste':'paste', 'dan':'paste', 'da':'paste',
         'dan noi dung':'paste', 'dan van ban':'paste',
         'huy hen gio':'cancel', 'huy bao thuc':'cancel',

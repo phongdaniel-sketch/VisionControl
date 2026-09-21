@@ -74,7 +74,8 @@ class VoiceService(QObject):
         self.config = dict(enabled=False, device='Microphone (Logitech BRIO)', hotkey='Space', speech=True)
         self.config['diagnostic_log'] = False
         self.config['debug_audio'] = False
-        self.config.update(provider='local', cloud_consent=False)
+        self.config.update(provider='local', cloud_consent=False,
+                           weather_auto_location=True, weather_location='Đà Nẵng')
         self.secret_path = self.path.parent/'gemini_key.dpapi'
         try:
             if self.path.exists():
@@ -374,6 +375,9 @@ class VoiceService(QObject):
         elif kind=='spoken':
             self.state='ready' if self.hotkey else 'off'
             self.status('Sẵn sàng.' if self.hotkey else 'Voice Control đang tắt.')
+        elif kind=='weather':
+            self.state='ready'
+            self.reply(value)
         elif kind=='recognized':
             self.state='ready'
             text,confidence=value
@@ -428,6 +432,13 @@ class VoiceService(QObject):
         elif name=='computer':
             subprocess.Popen(['explorer.exe','shell:MyComputerFolder'])
             self.reply('Đã mở Máy tính.')
+        elif name=='weather':
+            from .voice_weather import safe_weather_report
+            self.state='processing'
+            self.status('Đang tra cứu thời tiết...')
+            self.run('weather', lambda: safe_weather_report(
+                self.config.get('weather_location', 'Đà Nẵng'),
+                self.config.get('weather_auto_location', True)))
         elif name in ('close_window', 'lock_computer'):
             if modifiers_down() or (name=='close_window' and (not self.target or foreground()!=self.target)):
                 raise ValueError('Đã hủy: cửa sổ đích thay đổi hoặc bạn chưa thả phím bổ trợ.')
@@ -629,6 +640,12 @@ class VoiceService(QObject):
         api_key.setMaxLength(512)
         api_key.setPlaceholderText('Key saved; leave blank to keep' if self.secret_path.exists() else 'Gemini API key')
         remove_key=QCheckBox('Delete saved API key')
+        auto_location=QCheckBox('Automatically detect weather location')
+        auto_location.setChecked(self.config.get('weather_auto_location', True))
+        auto_location.setToolTip('Uses Windows Location only when you ask for weather. Falls back to the saved city.')
+        weather_location=QLineEdit(self.config.get('weather_location', 'Đà Nẵng'))
+        weather_location.setMaxLength(100)
+        weather_location.setPlaceholderText('Đà Nẵng')
         def provider_changed():
             online=provider.currentData()=='gemini'
             consent.setEnabled(online)
@@ -651,6 +668,11 @@ class VoiceService(QObject):
         form.addRow('Speech-to-Text',provider)
         form.addRow('API key',api_key)
         form.addRow(consent);form.addRow(remove_key)
+        form.addRow(auto_location)
+        form.addRow('Weather fallback city', weather_location)
+        weather_note=QLabel('Weather data: Open-Meteo. Your coordinates or fallback city are sent only when requesting weather.')
+        weather_note.setWordWrap(True);weather_note.setObjectName('muted')
+        form.addRow(weather_note)
         form.addRow(refresh)
         form.addRow(logging)
         form.addRow(debug_button)
@@ -663,6 +685,7 @@ class VoiceService(QObject):
             'Time: “Mấy giờ rồi”, “Bây giờ là mấy giờ”\n'
             'Date: “Hôm nay là ngày mấy”\n'
             'Weekday: “Hôm nay là thứ mấy”\n'
+            'Weather: “Thời tiết hôm nay thế nào”\n'
             'Copy: “Copy”, “Sao chép”\n'
             'Paste: “Paste”, “Dán”, “Dạ”, “Dán nội dung”, “Dán văn bản”\n'
             'Timer: “Hẹn giờ 10 phút”, “Báo thức sau 10 giây” (1 second to 24 hours)\n'
@@ -677,12 +700,16 @@ class VoiceService(QObject):
         def values():
             return (enabled.isChecked(), devices.currentData(), hotkey.currentText(),
                     speech.isChecked(), logging.isChecked(), provider.currentData(),
-                    consent.isChecked(), remove_key.isChecked(), api_key.text())
+                    consent.isChecked(), remove_key.isChecked(), api_key.text(),
+                    auto_location.isChecked(), weather_location.text())
         original_values = values()
         def apply():
             try:
                 if embedded and values() == original_values:return True
                 chord = parse_hotkey(hotkey.currentText())[0]
+                city = weather_location.text().strip()
+                if not city:
+                    raise ValueError('Enter a fallback city for weather.')
                 if enabled.isChecked() and not devices.model().item(devices.currentIndex()).isEnabled():
                     raise ValueError('Select a connected microphone.')
                 if enabled.isChecked() and provider.currentData()=='gemini' and (not consent.isChecked() or remove_key.isChecked()):
@@ -695,7 +722,9 @@ class VoiceService(QObject):
                 self.configure(dict(enabled=enabled.isChecked(),device=devices.currentData(),
                                     hotkey=chord,speech=speech.isChecked(),
                                     diagnostic_log=logging.isChecked(),provider=provider.currentData(),
-                                    cloud_consent=consent.isChecked(),debug_audio=False))
+                                    cloud_consent=consent.isChecked(),debug_audio=False,
+                                    weather_auto_location=auto_location.isChecked(),
+                                    weather_location=city))
                 if not embedded:box.accept()
                 return True
             except Exception as exc:

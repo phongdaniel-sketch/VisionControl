@@ -41,7 +41,7 @@ def decode(model, data, rate, diagnostics=None):
         audio.setnchannels(1);audio.setsampwidth(2);audio.setframerate(rate);audio.writeframes(data)
     buffer.seek(0)
     segments,info=model.transcribe(buffer,language='vi',beam_size=5,temperature=0,
-                               initial_prompt='Mở máy tính. Mấy giờ rồi? Hôm nay là ngày mấy? Copy. Paste. Sao chép. Dán. Hẹn giờ. Báo thức sau mười phút. Hủy hẹn giờ. Còn bao nhiêu phút?',
+                               initial_prompt='Mở máy tính. Mấy giờ rồi? Hôm nay là ngày mấy? Thời tiết hôm nay thế nào? Copy. Paste. Sao chép. Dán. Hẹn giờ. Báo thức sau mười phút. Hủy hẹn giờ. Còn bao nhiêu phút?',
                                vad_filter=True,condition_on_previous_text=False)
     segments=list(segments)
     if diagnostics is not None:
