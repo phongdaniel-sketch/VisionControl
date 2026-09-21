@@ -19,6 +19,7 @@ from .settings import (
 )
 from .ui_theme import APP_STYLE, humanize
 from .settings_widgets import StateCheckBox as QCheckBox
+from . import autostart
 
 
 ROOT = resource_root()
@@ -69,6 +70,19 @@ class SettingsWindow(QMainWindow):
                        "Camera device index. Try 0 first on Windows; choose the index "
                        "of your physical camera if a virtual camera is also installed.")
         self.start_paused = QCheckBox("Always start paused")
+        self.start_minimized = QCheckBox('Alway start at mini mode')
+        self.start_minimized.setChecked(desktop.start_minimized)
+        self.start_minimized.setToolTip('Start in the system tray without opening the controller window.')
+        self.start_with_desktop = QCheckBox('Start with the Desktop')
+        self._startup_initial = False
+        try:
+            self._startup_initial = autostart.is_enabled()
+            self.start_with_desktop.setChecked(self._startup_initial)
+            self.start_with_desktop.setEnabled(sys.platform == 'win32')
+            self.start_with_desktop.setToolTip('Launch VisionControl when you sign in to Windows.')
+        except OSError as exc:
+            self.start_with_desktop.setEnabled(False)
+            self.start_with_desktop.setToolTip(f'Cannot read Windows startup setting: {exc}')
         self.start_paused.setChecked(desktop.start_paused)
         self._describe(self.start_paused,
                        "Applies on the next normal launch after Save. --start-paused overrides Off. "
@@ -489,6 +503,11 @@ class SettingsWindow(QMainWindow):
     def _general_page(self):
         group, form = self._form_group("Startup and hand roles")
         form.addRow(self.start_paused)
+        form.addRow(self.start_minimized)
+        form.addRow(self.start_with_desktop)
+        voice = QPushButton('Voice Control')
+        voice.clicked.connect(self.open_voice)
+        form.addRow(voice)
         startup_hint = QLabel('On: wait for Start. Off: a normal launch may enable control immediately. '
             'Save applies this to the next launch; closing Settings never starts control. '
             'An explicit --start-paused or windows.ps1 run -StartPaused overrides Off. '
@@ -514,6 +533,13 @@ class SettingsWindow(QMainWindow):
         notice.setWordWrap(True)
         form.addRow(notice)
         return self._page("Camera", "Choose the local camera used for tracking.", group)
+
+    def open_voice(self):
+        parent = self.parent()
+        if parent is not None and hasattr(parent, 'open_voice'):
+            parent.open_voice()
+        else:
+            QMessageBox.information(self, 'Voice Control', 'Open Voice Control from the controller system tray.')
 
     def _preview_page(self):
         group, form = self._form_group('Preview and diagnostics')
@@ -720,6 +746,7 @@ class SettingsWindow(QMainWindow):
         self.show_guide.setChecked(True)
         self.debug_view.setChecked(False)
         self.start_paused.setChecked(True)
+        self.start_minimized.setChecked(False)
         self.mouse_hand.setCurrentText(profile.mouse_hand)
         self._set_combo_data(self.pointer_mode, 'thumb_lock' if profile.pointer_mode in {'thumb_lock', 'index_fingertip'} else 'palm')
         self.swap_hands.setChecked(profile.swap_hands)
@@ -816,8 +843,13 @@ class SettingsWindow(QMainWindow):
             save_user_profile(USER_PROFILE, raw)
             save_desktop_settings(APP_SETTINGS, DesktopSettings(
                 self.camera.value(), self.start_paused.isChecked(),
-                self.show_skeleton.isChecked(), self.show_guide.isChecked()))
+                self.show_skeleton.isChecked(), self.show_guide.isChecked(),
+                self.start_minimized.isChecked()))
             self.raw_profile = raw
+            if (self.start_with_desktop.isEnabled() and
+                    self.start_with_desktop.isChecked() != self._startup_initial):
+                autostart.set_enabled(self.start_with_desktop.isChecked())
+                self._startup_initial = self.start_with_desktop.isChecked()
             self.settings_saved.emit()
             self.close()
             return True

@@ -40,7 +40,7 @@ class GestureV1Panel(QWidget):
             ('modifier_seconds', 'Ctrl / Shift / Alt confirmation (s)', .3, 3, .1),
             ('pose_seconds', 'Pose confirmation (s) · also applies to motion gestures', .1, 1, .05),
             ('symbol_seconds', 'Symbol confirmation (s)', .2, 2, .1),
-            ('corner_seconds', 'Double fist window (s)', 1, 5, .5),
+            ('corner_dwell_seconds', 'Hot corner dwell (s)', .3, 3, .1),
             ('scroll_speed', 'Scroll sensitivity', 1, 150, 1),
             ('close_spread', 'Closed finger spacing', .15, .8, .05),
             ('wide_spread', 'Wide finger spacing', .3, 1.5, .05)]:
@@ -60,7 +60,7 @@ class GestureV1Panel(QWidget):
             self.bindings[count] = (kind, keys); self.form.addRow(f'{count} fingers', row)
         self.form = self.section('Actions')
         help_text = QLabel('Choose an action or type a shortcut, e.g. ctrl+c. OK uses three extended fingers; this pose will not start a drag when assigned.\n'
-                          'Corners use the selected display. Fist → open twice; leaving the corner cancels.')
+                          'Corners use pointer dwell on the selected display. Leave the corner to rearm.')
         help_text.setWordWrap(True); self.form.addRow(help_text)
         for group, names in [('symbols', SYMBOLS), ('corners', CORNERS)]:
             for name in names:

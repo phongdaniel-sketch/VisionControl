@@ -24,7 +24,14 @@ class ActionPicker(QComboBox):
         for label, value in [('Not assigned', ''), ('Volume up', 'volume_up'),
                              ('Volume down', 'volume_down'), ('Mute / unmute', 'mute'),
                              ('Zoom in', 'zoom_in'), ('Zoom out', 'zoom_out'),
-                             ('Copy', 'ctrl+c'), ('Paste', 'ctrl+v')]:
+                             ('Copy', 'ctrl+c'), ('Paste', 'ctrl+v'),
+                             ('Voice Listen Toggle', 'voice_listen_toggle'),
+                             ('Play / Pause', 'play_pause'), ('Next Track', 'next_track'),
+                             ('Previous Track', 'previous_track'), ('Show Desktop', 'win+d'),
+                             ('Task View', 'win+tab'), ('Screenshot', 'win+shift+s'),
+                             ('Open This PC', 'open_computer'), ('Undo', 'ctrl+z'),
+                             ('Redo', 'ctrl+y'), ('Escape', 'esc'),
+                             ('Pause Gesture Control', 'pause_gestures')]:
             self.addItem(label, value)
         self.lineEdit().setPlaceholderText('Choose an action or type a shortcut')
         self.setToolTip('Choose an action, or type a shortcut such as ctrl+c or win+d.')

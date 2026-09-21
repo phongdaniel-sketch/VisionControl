@@ -3,7 +3,7 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent, QIcon, QImage, QKeyEvent, QPixmap, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
@@ -23,6 +23,8 @@ ROOT = resource_root()
 
 
 class ControllerWindow(QMainWindow):
+    app_action = Signal(str)
+
     def __init__(self, runtime, runtime_factory=VisionRuntime,
                  settings_factory=SettingsWindow, enable_tray=False):
         super().__init__()
@@ -37,6 +39,10 @@ class ControllerWindow(QMainWindow):
         self.hidden_in_tray = False
         self.perception_suspended = False
         self.tray = None
+        self.voice = None
+        from .hot_corners import HotCorners
+        self.hot_corners = HotCorners()
+        self.app_action.connect(self._handle_app_action, Qt.ConnectionType.QueuedConnection)
         self.last_frame_time = None
         self.last_status_time = 0.
         self.smoothed_fps = 0.0
@@ -49,6 +55,13 @@ class ControllerWindow(QMainWindow):
         self.setWindowIcon(icon)
         self.setStyleSheet(APP_STYLE)
         self._build_ui()
+        self.corner_hint = QLabel('', self)
+        self.corner_hint.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.WindowDoesNotAcceptFocus)
+        self.corner_hint.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.corner_hint.setStyleSheet('background: #20242b; color: white; padding: 10px;')
+        self.corner_timer = QTimer(self)
+        self.corner_timer.timeout.connect(self._poll_hot_corners)
+        self.corner_timer.start(50)
         self._apply_preview_settings()
         self._refresh_static_runtime_labels()
         self._update_pause_button()
@@ -118,10 +131,16 @@ class ControllerWindow(QMainWindow):
         self.timing_label = QLabel('')
         self.timing_label.setObjectName('muted')
         self.timing_label.hide()
+        debug_row.addStretch()
         debug_row.addWidget(self.calibration_view_button)
+        self.calibrate_button = QPushButton("Calibrate")
+        calibration_menu = QMenu(self.calibrate_button)
+        calibration_menu.addAction('Movement area', self.start_calibration)
+        calibration_menu.addAction('Hand poses', self.start_pose_calibration)
+        self.calibrate_button.setMenu(calibration_menu)
+        debug_row.addWidget(self.calibrate_button)
         for control in (self.skeleton_toggle, self.guide_toggle, self.debug_button, self.debug_toggle):
             control.hide()
-        debug_row.addStretch()
         layout.addLayout(debug_row)
         layout.addWidget(self.timing_label)
 
@@ -211,21 +230,15 @@ class ControllerWindow(QMainWindow):
         self.mouse_button.setEnabled(False)
         self.keyboard_button = QPushButton("Keyboard · DISARMED")
         self.keyboard_button.setEnabled(False)
-        self.voice_button = QPushButton("Voice · Coming soon")
-        self.voice_button.setEnabled(False)
-        self.voice_button.setToolTip("Voice control is planned for a future release")
+        self.voice_button = QPushButton("Voice")
+        self.voice_button.clicked.connect(self.toggle_voice_listen)
+        self.voice_button.setToolTip("Start one voice command; click again to submit. Esc cancels.")
         self.settings_button = QPushButton("Settings")
         self.settings_button.clicked.connect(self.open_settings)
-        self.calibrate_button = QPushButton("Calibrate")
-        calibration_menu = QMenu(self.calibrate_button)
-        calibration_menu.addAction('Movement area', self.start_calibration)
-        calibration_menu.addAction('Hand poses', self.start_pose_calibration)
-        self.calibrate_button.setMenu(calibration_menu)
         controls.addWidget(self.pause_button)
         controls.addWidget(self.mouse_button, 1)
         controls.addWidget(self.keyboard_button, 1)
         controls.addWidget(self.voice_button, 1)
-        controls.addWidget(self.calibrate_button)
         controls.addWidget(self.settings_button, 1)
         layout.addLayout(controls)
         self.setCentralWidget(root)
@@ -320,6 +333,8 @@ class ControllerWindow(QMainWindow):
 
     def _process_frame(self):
         try:
+            if getattr(self.runtime, 'adapter', None) is not None:
+                self.runtime.adapter.app_action_handler = self.app_action.emit
             snapshot = self.runtime.process_frame()
             if hasattr(self.runtime,'cursor_tick'):self.runtime.cursor_tick()
             if snapshot is None:return
@@ -728,7 +743,10 @@ class ControllerWindow(QMainWindow):
             return
         key = event.key()
         if key == Qt.Key.Key_Escape:
-            self.hide_to_tray()
+            if self.voice is not None and self.voice.state in ('recording', 'processing'):
+                self.voice.cancel_listen()
+            else:
+                self.hide_to_tray()
         elif key == Qt.Key.Key_P:
             self.toggle_pause()
         elif key == Qt.Key.Key_C:
@@ -785,6 +803,69 @@ class ControllerWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
+    def _handle_app_action(self, action):
+        if self.closing:return
+        if action == 'voice_listen_toggle':
+            self.toggle_voice_listen()
+        elif action == 'pause_gestures':
+            self.runtime.set_paused(True)
+            self._update_pause_button()
+            self._sync_tray()
+        elif action == 'open_computer':
+            import subprocess
+            if sys.platform == 'win32':
+                subprocess.Popen(['explorer.exe', 'shell:MyComputerFolder'])
+
+    def _poll_hot_corners(self):
+        if self.closing:return
+        runtime = self.runtime
+        mouse = getattr(runtime, 'mouse', None)
+        if mouse is None or runtime.adapter is None:return
+        cfg = runtime.profile.gesture_v1
+        primary = getattr(runtime, 'primary_v1', None)
+        physical_drag = False
+        if sys.platform == 'win32':
+            import ctypes
+            physical_drag = any(ctypes.windll.user32.GetAsyncKeyState(k) & 0x8000 for k in (1, 2, 4))
+        blocked = (runtime.paused or not cfg.get('enabled') or self.frame_error is not None
+                   or self.settings_window is not None or self.diagnostic_window is not None
+                   or self.pose_window is not None or runtime.calibration_session.active
+                   or physical_drag or bool(getattr(runtime.adapter, 'held_buttons', set()))
+                   or (self.voice is not None and (self.voice.dialog is not None or self.voice.alarm is not None))
+                   or (primary is not None and (primary.mode in ('volume', 'scroll') or primary.gate.name == 'volume')))
+        try:
+            point = runtime.adapter.position()
+            action = self.hot_corners.update(point, mouse.layout.target(point),
+                cfg.get('corners', {}), time.monotonic(), cfg.get('corner_dwell_seconds', .7), blocked)
+            if 0 < self.hot_corners.progress < 1 and QApplication.platformName() != 'offscreen':
+                self.corner_hint.setText(f'Hot corner · {self.hot_corners.progress:.0%}')
+                self.corner_hint.adjustSize()
+                area = self.screen().availableGeometry()
+                self.corner_hint.move(area.center().x()-self.corner_hint.width()//2, area.top()+20)
+                self.corner_hint.show()
+            else:
+                self.corner_hint.hide()
+            if action:
+                runtime.adapter.app_action_handler = self.app_action.emit
+                runtime.adapter.perform(action)
+        except Exception as exc:
+            self.corner_hint.hide()
+            # Disable a failed poller rather than repeatedly sending actions.
+            self.corner_timer.stop()
+            self.status_action.setText(f'Hot corner error: {exc}')
+
+    def toggle_voice_listen(self):
+        if self.voice is None:
+            from .voice_ui import VoiceService
+            self.voice = VoiceService(self)
+        self.voice.toggle_listen()
+
+    def open_voice(self):
+        if self.voice is None:
+            from .voice_ui import VoiceService
+            self.voice = VoiceService(self)
+        self.voice.open_dialog()
+
     def hide_to_tray(self):
         if self.closing or self.pose_window is not None:
             return
@@ -795,6 +876,12 @@ class ControllerWindow(QMainWindow):
         self.runtime.preview_enabled = False
         self.hide()
         self._suspend_if_idle()
+
+    def present_startup(self, minimized):
+        if minimized and self.tray is not None and self.tray.available():
+            self.hide_to_tray()
+        else:
+            self.show()
 
     def quit_application(self):
         self.shutdown()
@@ -808,9 +895,12 @@ class ControllerWindow(QMainWindow):
             return
         self.closing = True
         self.timer.stop()
+        self.corner_timer.stop()
+        self.corner_hint.hide()
         # Attempt every cleanup even if a child window fails to close.
         errors = []
         for operation in (
+            lambda: self.voice.close() if self.voice is not None else None,
             lambda: self.runtime.set_paused(True),
             lambda: self.pose_window.reject() if self.pose_window is not None else None,
             lambda: self.diagnostic_window.close() if self.diagnostic_window is not None else None,
@@ -857,16 +947,21 @@ def main(argv=None) -> int:
     window = None
     try:
         import cv2
-        startup = StartupScreen(cv2, ROOT / "docs" / "Splash Screen.png",
-                                ROOT / "docs" / "Loading Screen.png")
-        startup.show_splash(1000)
-        runtime.start(lambda value, message:
-                      startup.show_loading(value, message,
-                                           250 if value >= 1 else 1))
+        if desktop.start_minimized:
+            runtime.start()
+        else:
+            startup = StartupScreen(cv2, ROOT / "docs" / "Splash Screen.png",
+                                    ROOT / "docs" / "Loading Screen.png")
+            startup.show_splash(1000)
+            runtime.start(lambda value, message:
+                          startup.show_loading(value, message,
+                                               250 if value >= 1 else 1))
         cv2.destroyAllWindows()
         app.processEvents()
         window = ControllerWindow(runtime, enable_tray=True)
-        window.show()
+        from .voice_ui import VoiceService
+        window.voice = VoiceService(window)
+        window.present_startup(desktop.start_minimized)
         app.processEvents()
         if args.quit_after is not None:
             QTimer.singleShot(max(1, int(args.quit_after * 1000)), window.quit_application)

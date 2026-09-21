@@ -42,6 +42,36 @@ class SystemTrayTests(unittest.TestCase):
             self.window.show_controller()
             self.assertTrue(self.window.isVisible())
 
+    def test_mini_start_is_hidden_and_can_reopen(self):
+        self.runtime.set_paused(False)
+        with patch.object(self.window.tray, 'available', return_value=True):
+            self.window.present_startup(True)
+            self.assertFalse(self.window.isVisible())
+            self.assertTrue(self.window.hidden_in_tray)
+            self.assertFalse(self.runtime.paused)
+            self.window.show_controller()
+            self.assertTrue(self.window.isVisible())
+
+    def test_mini_start_falls_back_to_visible_without_tray(self):
+        with patch.object(self.window.tray, 'available', return_value=False):
+            self.window.present_startup(True)
+            self.assertTrue(self.window.isVisible())
+            self.assertFalse(self.window.hidden_in_tray)
+
+    def test_normal_start_shows_window(self):
+        self.window.present_startup(False)
+        self.assertTrue(self.window.isVisible())
+
+    def test_mini_setting_round_trip_and_old_default(self):
+        import tempfile
+        from vision_control.settings import DesktopSettings, load_desktop_settings, save_desktop_settings
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'settings.json'
+            path.write_text('{}')
+            self.assertFalse(load_desktop_settings(path).start_minimized)
+            save_desktop_settings(path,DesktopSettings(start_minimized=True))
+            self.assertTrue(load_desktop_settings(path).start_minimized)
+
     def test_escape_key_routes_to_tray_without_shutdown(self):
         self.window.show()
         with patch.object(self.window.tray, 'available', return_value=True):

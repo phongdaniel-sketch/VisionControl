@@ -5,6 +5,10 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 data/captures/
+data/voice_debug/
+data/voice_diagnostics.jsonl*
+data/gemini_key.dpapi
+data/gemini_key.tmp
 data/*.json
 data/*.bak
 models/

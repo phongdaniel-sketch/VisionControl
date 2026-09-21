@@ -15,6 +15,7 @@ class ControllerTray:
         self.menu.addAction('Open Controller', window.show_controller)
         self.toggle_action = self.menu.addAction('Start', window.toggle_pause)
         self.settings_action = self.menu.addAction('Settings', self.open_settings)
+        self.voice_action = self.menu.addAction('Voice Control', window.open_voice)
         self.menu.addSeparator()
         self.menu.addAction('Quit', window.quit_application)
         self.icon.setContextMenu(self.menu)

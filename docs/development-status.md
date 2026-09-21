@@ -1,5 +1,31 @@
 # Development status
 
+## Gemini transcription and custom hotkeys (2026-09-21)
+
+- Added opt-in Gemini 2.5 Flash transcription, explicit audio-upload consent,
+  masked API-key field and Windows user-scoped DPAPI storage. Local remains default.
+- Gemini errors are sanitized; no key in config/log/URL, no redirect forwarding,
+  no retries or automatic cloud fallback, bounded WAV upload after voice activation.
+- Configurable Ctrl/Alt/Shift hotkeys, legacy migration, native checks for
+  Ctrl+Shift+Space and Ctrl+Space. Save closes on success, errors stay visible.
+- 329 tests passed, native DPAPI roundtrip and UI checks passed, compileall and
+  diff checks passed. API tests mocked; no real key, network request or mic capture.
+- EXE rebuild and physical voice/API acceptance remain pending.
+
+## Voice toggle and pointer corners (2026-09-21)
+
+- Implemented Controller Voice activation, bounded single-utterance VAD, repeat
+  toggle/Escape cancellation, countdown, micro refresh, and local action routing.
+- Replaced pose-driven corner sequence with .7 s pointer dwell and entry latch;
+  suppresses drag, volume, scroll, pause and modal operations. Existing gesture
+  corner bindings preserved; added corner_dwell_seconds setting.
+- Added media, desktop, task view, screenshot, This PC, undo/redo, Escape, pause
+  gestures and Voice Listen Toggle actions. No Gemini/cloud integration.
+- Native Windows button/settings screenshots and Vietnamese synthetic speech VAD
+  smoke passed. Real microphone/camera acceptance and EXE rebuild remain pending.
+- Regression suite: 272 tests passed, including audio endpoint and pointer-to-voice
+  action integration. No live microphone capture was performed during verification.
+
 ## Keyboard three/four/open correction (2026-09-05)
 
 - User screenshot showed an open left palm labeled Four fingers. Removed the

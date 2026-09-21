@@ -24,6 +24,7 @@ class DesktopSettings:
     start_paused: bool = False
     show_skeleton: bool = True
     show_guide: bool = True
+    start_minimized: bool = False
 
 
 def load_desktop_settings(path: str | Path) -> DesktopSettings:
@@ -36,7 +37,8 @@ def load_desktop_settings(path: str | Path) -> DesktopSettings:
         if camera_index < 0:
             raise ValueError("Camera index must be zero or greater")
         return DesktopSettings(camera_index, bool(raw.get("start_paused", False)),
-                               bool(raw.get('show_skeleton', True)), bool(raw.get('show_guide', True)))
+                               bool(raw.get('show_skeleton', True)), bool(raw.get('show_guide', True)),
+                               bool(raw.get('start_minimized', False)))
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         raise ValueError(f"Invalid desktop settings: {exc}") from exc
 

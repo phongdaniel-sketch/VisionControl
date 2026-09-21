@@ -455,7 +455,7 @@ class CoreTests(unittest.TestCase):
         self.assertIsNone(runtime.tracker)
         self.assertIsNone(runtime.adapter)
 
-    def test_controller_opens_settings_only_from_button_and_disables_voice(self):
+    def test_controller_opens_settings_only_from_button_and_enables_voice(self):
         import os
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         from PySide6.QtWidgets import QApplication
@@ -490,7 +490,7 @@ class CoreTests(unittest.TestCase):
                 window = ControllerWindow(runtime)
                 window.timer.stop()
                 self.assertIsNone(window.settings_window)
-                self.assertFalse(window.voice_button.isEnabled())
+                self.assertTrue(window.voice_button.isEnabled())
                 window.settings_button.click()
                 app.processEvents()
                 self.assertIsNotNone(window.settings_window)

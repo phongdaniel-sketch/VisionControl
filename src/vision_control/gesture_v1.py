@@ -135,18 +135,7 @@ class PrimaryHand:
         self.gate = Stability(); self.switch_gate = Stability()
         self.mode = ''; self.anchor = None; self.axis = None; self.remainder = 0.
         self.status = ''; self.progress = 0.; self.previous = None
-        self.corner = ''; self.corner_started = 0.; self.corner_count = 0
-        self.corner_closed = False; self.corner_latched = False; self.corner_gate = Stability()
         self.last_step = 0.
-
-    def corner_at(self, region):
-        x, y = self.adapter.position()
-        if not (region.x <= x < region.x + region.width and region.y <= y < region.y + region.height):
-            return ''
-        margin = max(12, min(region.width, region.height) * .025)
-        side = 'left' if x < region.x + margin else 'right' if x >= region.x + region.width - margin else ''
-        edge = 'top' if y < region.y + margin else 'bottom' if y >= region.y + region.height - margin else ''
-        return edge + '_' + side if edge and side else ''
 
     def update(self, f, now, mouse):
         self.progress = 0.
@@ -210,27 +199,6 @@ class PrimaryHand:
         opened = getattr(mouse.profile, 'thresholds', {}).get('pinch_open_ratio', .45)
         if not f.pinch and f.pinch_ratio > opened:
             mouse.thumb_control.ready_at = now
-        corner = self.corner_at(mouse.layout.target(self.adapter.position()))
-        action = self.cfg['corners'].get(corner, '')
-        if corner != self.corner or now - self.corner_started > self.cfg['corner_seconds']:
-            self.corner, self.corner_started, self.corner_count = corner, now, 0
-            self.corner_closed = self.corner_latched = False
-            self.corner_gate = Stability()
-        if action:
-            self.switch_gate = Stability()
-            stable, _ = self.corner_gate.update('closed' if f.fist else 'open', now, .12)
-            if stable and f.fist:
-                self.corner_closed = True
-            elif stable and self.corner_closed:
-                self.corner_closed = False; self.corner_count += 1
-                if self.corner_count == 2 and not self.corner_latched:
-                    self.adapter.perform(action); self.corner_latched = True
-            if f.fist or self.corner_closed or (self.corner_count and not self.corner_latched):
-                mouse.release_all(); self.status = f'Corner {corner}: {self.corner_count}/2'
-                return True
-            if self.corner_latched:
-                # Permit leaving the corner immediately after the action.
-                return False
         if self.cfg['fist_switch'] and f.fist:
             ready, self.progress = self.switch_gate.update('switch', now, 3.)
             mouse.release_all(); self.gate = Stability(); self.mode = ''

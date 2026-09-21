@@ -6,12 +6,14 @@ DEFAULTS = {
     'scroll': True, 'zoom': False, 'volume': True, 'modifier_seconds': 1.0,
     'pose_seconds': .3, 'scroll_speed': 40.0, 'reverse_scroll': False,
     'close_spread': .45, 'wide_spread': .7,
-    'symbol_seconds': .5, 'corner_seconds': 2.5,
+    'symbol_seconds': .5, 'corner_seconds': 2.5, 'corner_dwell_seconds': .7,
     'symbols': {}, 'corners': {}, 'bindings': {},
 }
 SYMBOLS = ('thumbs_up', 'thumbs_down', 'ok', 'victory')
 CORNERS = ('top_left', 'top_right', 'bottom_left', 'bottom_right')
-ACTIONS = ('volume_up', 'volume_down', 'mute', 'zoom_in', 'zoom_out')
+ACTIONS = ('volume_up', 'volume_down', 'mute', 'zoom_in', 'zoom_out',
+           'voice_listen_toggle', 'pause_gestures', 'open_computer',
+           'play_pause', 'next_track', 'previous_track')
 
 
 def validate_action(action):
@@ -39,7 +41,7 @@ def config(raw=None):
             raise ValueError(f'{key} must be boolean')
     for key, lo, hi in [('modifier_seconds', .3, 3), ('pose_seconds', .1, 1),
                         ('scroll_speed', 1, 150), ('symbol_seconds', .2, 2),
-                        ('corner_seconds', 1, 5), ('close_spread', .15, .8),
+                        ('corner_seconds', 1, 5), ('corner_dwell_seconds', .3, 3), ('close_spread', .15, .8),
                         ('wide_spread', .3, 1.5)]:
         if not lo <= float(result[key]) <= hi:
             raise ValueError(f'{key} must be between {lo} and {hi}')

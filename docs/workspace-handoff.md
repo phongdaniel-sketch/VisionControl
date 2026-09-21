@@ -1,5 +1,64 @@
 # VisionControl workspace handoff
 
+## Dedicated Voice Debug (2026-09-21)
+
+Supersedes global debug_audio recording below. Only the separate Voice Debug dialog
+can opt into WAV capture. Normal Voice/hotkey/quick mic test never saves WAV, even
+with legacy debug_audio=true. Debug captures are preview-only and include optional
+expected text. Open Settings -> Voice Control -> Voice Debug; opening alone does
+not record. Close cancels and normal hotkeys are blocked while the debug window is
+open. Existing debug samples and bounds retained; source only, EXE unchanged.
+
+## Voice debug recording consent (2026-09-21)
+
+User explicitly authorized retaining local debug audio/logs until recognition is
+fixed. debug_audio defaults off, but was enabled in their current source settings.
+Next activated captures (preview, hotkey or Voice button) save WAV + UUID-linked
+JSONL under data/voice_debug, including rejected/timeout/cancelled audio. No passive
+recording, no additional uploads. Existing provider consent still controls Gemini.
+500-sample / 256-MiB cap refuses new debug captures, never silently deletes evidence.
+Settings has recording toggle and open-folder button. Source data/debug logs and
+DPAPI credentials are now explicitly ignored by Git. No real mic captured in tests.
+After acceptance, disable recording and remove only these debug artifacts with the
+user's authorization. Existing EXE is unchanged.
+
+## Voice second-click submission (2026-09-21)
+
+User corrected the toggle interaction: click Voice to start, click again to submit
+the recorded utterance, not cancel. Gesture Voice Listen Toggle follows the same
+rule. Busy button is disabled; Escape still cancels. Auto silence endpoint and hold
+hotkey release remain unchanged. 332 regression tests pass. Source only; EXE unchanged.
+This supersedes older second-toggle-cancels notes below.
+
+## Optional Gemini STT and hotkeys (2026-09-21)
+
+Voice Settings now supports Ctrl/Alt/Shift + Space, letter, digit or F1-F12.
+Legacy Space/V migrates to Ctrl+Alt. Ctrl+Shift+Space and Ctrl+Space both passed
+native Windows register/unregister checks. Keep hold-to-talk semantics.
+Whisper local remains default. Gemini 2.5 Flash STT requires provider selection,
+explicit audio-upload consent and an API key pasted by the user. Keys are DPAPI
+encrypted per Windows user under ignored data/gemini_key.dpapi, never in JSON/logs.
+No real key was used or API request sent during verification. Recommend rotating
+the key shared in conversation. Network tests are mocked; physical mic/API accuracy
+still needs user validation. Gemini returns no STT score; display unavailable and
+retain deterministic command allowlist. No web Q&A or Gemini tool execution.
+329 tests pass, compileall/diff checks pass. Existing EXE is not rebuilt.
+See docs/requirements/gemini-hotkeys.md and docs/plans/gemini-hotkeys.md.
+
+## Voice toggle and pointer corners (2026-09-21)
+
+Source now connects the Controller Voice button and voice_listen_toggle Action.
+Disabled voice opens Settings without microphone capture. Toggle waits 5 s for
+speech, submits after 1.2 s silence, rejects a 15 s truncated utterance. Toggle
+again or Escape cancels; stale results are ignored. Hold hotkey still works.
+WebRTC VAD is local; voice replies and Whisper remain offline. BRIO is a default,
+other WASAPI inputs are selectable and refreshable; no silent fallback device.
+Pointer-only hot corners dwell .7 s, once per entry, and suppress during pause,
+dialogs, dragging, volume and scroll. Old bindings preserved; corner_dwell_seconds
+replaces double-fist timing. New media and desktop actions are in Actions picker.
+EXE not rebuilt; microphone/camera acceptance with the user remains pending.
+See docs/requirements/voice-toggle-corners.md and docs/plans/voice-toggle-corners.md.
+
 Latest keyboard correction: 87 tests pass. Three/four/open static poses now use
 joint geometry; thumb spread is relative to the palm, independent of Left/Right
 labels or mirroring. Ambiguous states return None. This fixes the hardcoded thumb

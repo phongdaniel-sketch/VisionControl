@@ -82,7 +82,7 @@ class GestureV1Tests(unittest.TestCase):
         for i in range(42,74):p.update(f,i*.1,self.mouse)
         self.assertTrue(p.two_hands)
 
-    def test_corner_double_fist_and_negative_coordinates(self):
+    def test_corner_no_longer_consumes_fist_cycles(self):
         self.cfg['volume']=False
         self.cfg['corners']['top_left']='r';self.cfg['fist_switch']=True
         self.adapter.cursor=(-1918,2);p=PrimaryHand(self.adapter,self.cfg)
@@ -90,7 +90,7 @@ class GestureV1Tests(unittest.TestCase):
         for f,t in [(fist,0),(fist,.1),(fist,.2),(opened,.3),(opened,.4),
                     (opened,.5),(fist,.6),(fist,.7),(fist,.8),(opened,.9),
                     (opened,1.),(opened,1.1)]:p.update(f,t,self.mouse)
-        self.assertEqual([e['key'] for e in self.adapter.events if e['action']=='key_down'],['r'])
+        self.assertEqual([e['key'] for e in self.adapter.events if e['action']=='key_down'],[])
         self.assertTrue(p.two_hands)
 
     def test_zoom_and_volume_directions(self):
