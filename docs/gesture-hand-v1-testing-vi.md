@@ -25,7 +25,8 @@ Mapping cũ ở trang Gestures không điều khiển tay trái khi v1 bật.
 | Tay | Tư thế / chuỗi | Kết quả |
 | --- | --- | --- |
 | Chuột | Cái khép / mở | Di chuyển theo trỏ / khóa |
-| Chuột | Khi khóa: co rồi duỗi trỏ / giữa / cả hai | Click trái / giữa / phải |
+| Chuột | Cái mở: co rồi duỗi ngón trỏ / cả trỏ và giữa | Click trái / giữa |
+| Chuột | Tách cái khỏi trỏ/giữa, rồi chạm cái với giữa | Click phải ngay lúc chạm; giữ không lặp |
 | Chuột | Tách cái–trỏ trước, pinch 100 ms | Bắt đầu drag; di chuyển lòng bàn tay |
 | Chuột | Tách pinch 100 ms | Thả drag |
 | Chuột | Cái mở, bốn ngón duỗi khép sát; dịch chuyển | Cuộn dọc/ngang; trục giữ đến khi rời tư thế |

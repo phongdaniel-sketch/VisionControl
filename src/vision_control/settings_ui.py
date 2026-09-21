@@ -71,7 +71,8 @@ class SettingsWindow(QMainWindow):
         self.start_paused = QCheckBox("Always start paused")
         self.start_paused.setChecked(desktop.start_paused)
         self._describe(self.start_paused,
-                       "Start without sending mouse or keyboard input until you press Start.")
+                       "Applies on the next normal launch after Save. --start-paused overrides Off. "
+                       "Closing Settings or calibration always leaves control paused.")
         self.mouse_hand = QComboBox()
         self.mouse_hand.addItems(["Right", "Left"])
         self.mouse_hand.setCurrentText(profile.mouse_hand)
@@ -145,11 +146,13 @@ class SettingsWindow(QMainWindow):
         self.scroll.setValue(float(profile.thresholds.get("scroll_sensitivity", 45)))
         self._describe(self.scroll,
                        "Distance scrolled for a two-finger vertical movement. Higher is faster.")
-        self.edge_switch = QCheckBox("Enable point-pose edge switching")
+        self.edge_switch = QCheckBox("Point-pose display switching (legacy)")
         self.edge_switch.setChecked(bool(profile.thresholds.get(
             "monitor_edge_switch_enabled", True)))
         self._describe(self.edge_switch,
-                       "In active mode, hold the Point pose near a left/right edge to change displays.")
+                       "Legacy pointer only: extend index, curl the other fingers and hold near "
+                       "a left/right edge to change displays in active monitor mode. "
+                       "Not implemented for Palm or the current Index fingertip mode.")
         self.edge_dwell = QDoubleSpinBox()
         self.edge_dwell.setRange(.3, 3.0)
         self.edge_dwell.setSingleStep(.1)
@@ -289,6 +292,7 @@ class SettingsWindow(QMainWindow):
                 lambda value, editor=keys: editor.setEnabled(value != "Disabled"))
             self.gesture_rows[gesture] = (action, keys)
         self.monitor_mode.currentTextChanged.connect(self._update_monitor_state)
+        self.pointer_mode.currentIndexChanged.connect(self._update_monitor_state)
         self.edge_switch.stateChanged.connect(self._update_monitor_state)
         self.mouse_hand.currentTextChanged.connect(self._refresh_gesture_hand_labels)
 
@@ -485,7 +489,10 @@ class SettingsWindow(QMainWindow):
     def _general_page(self):
         group, form = self._form_group("Startup and hand roles")
         form.addRow(self.start_paused)
-        startup_hint = QLabel('On: wait for Start before controlling the PC. Off: control may start as soon as the app opens.')
+        startup_hint = QLabel('On: wait for Start. Off: a normal launch may enable control immediately. '
+            'Save applies this to the next launch; closing Settings never starts control. '
+            'An explicit --start-paused or windows.ps1 run -StartPaused overrides Off. '
+            'Normal windows.ps1 run follows this saved setting.')
         startup_hint.setWordWrap(True)
         startup_hint.setObjectName('muted')
         form.addRow(startup_hint)
@@ -579,7 +586,7 @@ class SettingsWindow(QMainWindow):
         group, form = self._form_group("Mouse-hand mapping")
         form.addRow("Move pointer", self.mouse_move_gesture)
         mode_note = QLabel("Thumb lock: open thumb to freeze. Curl/re-extend index = left, "
-                           "middle = middle, both = right. Index pinch = drag. "
+                           "both = middle. Thumb + middle contact = right click. Index pinch = drag. "
                            "The mappings below apply to the other pointer modes.")
         mode_note.setWordWrap(True)
         mode_note.setObjectName("muted")
@@ -671,6 +678,10 @@ class SettingsWindow(QMainWindow):
         form.addRow("Monitor mode", self.monitor_mode)
         form.addRow("Fixed display", self.fixed_monitor)
         form.addRow(self.edge_switch)
+        self.edge_switch_note = QLabel()
+        self.edge_switch_note.setWordWrap(True)
+        self.edge_switch_note.setObjectName('muted')
+        form.addRow(self.edge_switch_note)
         form.addRow("Edge dwell time", self.edge_dwell)
         form.addRow("Edge zone", self.edge_zone)
         return self._page(
@@ -689,10 +700,16 @@ class SettingsWindow(QMainWindow):
     def _update_monitor_state(self):
         mode = self.monitor_mode.currentText()
         self.fixed_monitor.setEnabled(mode == "fixed")
-        self.edge_switch.setEnabled(mode == "active")
-        enabled = mode == "active" and self.edge_switch.isChecked()
+        supported = self.pointer_mode.currentData() not in {'palm', 'thumb_lock'}
+        self.edge_switch.setEnabled(mode == "active" and supported)
+        enabled = mode == "active" and supported and self.edge_switch.isChecked()
         self.edge_dwell.setEnabled(enabled)
         self.edge_zone.setEnabled(enabled)
+        if hasattr(self, 'edge_switch_note'):
+            self.edge_switch_note.setText(
+                'Unavailable in Palm and current Index fingertip modes. The stored On/Off value '
+                'has no effect here. Use Fixed to select one display, or All for the combined desktop.'
+                if not supported else 'Requires Active monitor mode and at least two displays.')
 
     def reset_defaults(self):
         self.raw_profile = json.loads(DEFAULT_PROFILE.read_text(encoding="utf-8"))

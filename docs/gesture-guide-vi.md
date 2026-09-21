@@ -37,8 +37,9 @@ thao tác chuột bên dưới được cố định trong code; chưa có trìn
 | Khép ngón cái, giữ tay nhìn rõ | Con trỏ theo đầu ngón trỏ; không xét tư thế ba ngón còn lại |
 | Mở ngón cái | Khóa con trỏ; chờ trạng thái **Locked** trước khi click |
 | Khi khóa: duỗi ngón trỏ, co rồi duỗi lại | Click trái một lần |
-| Khi khóa: duỗi ngón giữa, co rồi duỗi lại | Click giữa một lần |
-| Khi khóa: duỗi trỏ + giữa, co đồng thời rồi duỗi lại cả hai | Click phải một lần |
+| Mở cái: duỗi trỏ + giữa, co đồng thời rồi duỗi lại cả hai | Click giữa một lần |
+| Tách cái khỏi trỏ/giữa trước, rồi chạm đầu ngón cái với đầu ngón giữa | Click phải ngay lúc chạm; giữ không lặp; tách ra để click tiếp |
+| Chỉ co rồi duỗi riêng ngón giữa | Không phát click |
 | Tách hai đầu ngón cái–trỏ; chụm và giữ | Giữ chuột trái để drag, không cần khóa trước |
 | Đang giữ pinch: di chuyển lòng bàn tay | Kéo tương đối từ vị trí bắt đầu, không nhảy về đầu ngón trỏ |
 | Tách ngón cái–trỏ | Nhả chuột, kết thúc drag |

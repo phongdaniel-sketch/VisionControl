@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QIcon, QImage, QKeyEvent, QPixmap, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QMainWindow,
-    QMessageBox, QPushButton, QVBoxLayout, QWidget, QComboBox,
+    QMessageBox, QPushButton, QVBoxLayout, QWidget, QComboBox, QMenu,
 )
 
 from .paths import resource_root
@@ -31,6 +31,7 @@ class ControllerWindow(QMainWindow):
         self.settings_factory = settings_factory
         self.settings_window = None
         self.diagnostic_window = None
+        self.pose_window = None
         self.frame_error = None
         self.closing = False
         self.hidden_in_tray = False
@@ -216,7 +217,10 @@ class ControllerWindow(QMainWindow):
         self.settings_button = QPushButton("Settings")
         self.settings_button.clicked.connect(self.open_settings)
         self.calibrate_button = QPushButton("Calibrate")
-        self.calibrate_button.clicked.connect(self.start_calibration)
+        calibration_menu = QMenu(self.calibrate_button)
+        calibration_menu.addAction('Movement area', self.start_calibration)
+        calibration_menu.addAction('Hand poses', self.start_pose_calibration)
+        self.calibrate_button.setMenu(calibration_menu)
         controls.addWidget(self.pause_button)
         controls.addWidget(self.mouse_button, 1)
         controls.addWidget(self.keyboard_button, 1)
@@ -289,10 +293,8 @@ class ControllerWindow(QMainWindow):
                            ('Drag', 'Apart → pinch; move palm; apart to drop')]
                 if cfg['scroll']:
                     entries.append(('Scroll', 'Thumb open, four fingers together; move hand.'))
-                if cfg['zoom']:
-                    entries.append(('Zoom', 'Spread → gather: in; gather → spread: out.'))
                 if cfg['volume']:
-                    entries.append(('Volume', 'Fingers toward camera; rotate clockwise: up.'))
+                    entries.append(('Volume', 'Hold fist; move right: up, left: down. Open to stop.'))
                 assigned = [name.replace('_', ' ') for name, action in cfg['symbols'].items() if action]
                 self.guide_note.setText(('Thumb open enables clicks; palm keeps moving. ' if palm_mode else 'Clicks require lock. ') + ('Symbols: ' + ', '.join(assigned) if assigned else 'Assign symbols/corners in Gestures Settings.'))
             else:
@@ -451,6 +453,7 @@ class ControllerWindow(QMainWindow):
 
     def can_toggle_input(self):
         return not (self.closing or self.frame_error is not None or
+                    self.pose_window is not None or
                     self.settings_window is not None or self.diagnostic_window is not None or
                     not self.runtime.started or self.runtime.calibration_session.active)
 
@@ -484,13 +487,39 @@ class ControllerWindow(QMainWindow):
             self.toggle_pause()
 
     def start_calibration(self):
-        if not getattr(self.runtime, 'started', False) or self.settings_window is not None:
+        if (not getattr(self.runtime, 'started', False) or self.settings_window is not None
+                or self.pose_window is not None or self.diagnostic_window is not None):
             return
         self.capture_deadline = None
         self.calibration_feedback = ''
         self.runtime.start_calibration()
         self._update_pause_button()
         self._update_calibration(self.runtime.last_snapshot)
+
+    def start_pose_calibration(self):
+        if (not self.runtime.started or self.settings_window is not None or self.pose_window is not None
+                or self.diagnostic_window is not None or self.frame_error is not None or self.closing):
+            return
+        if self.runtime.profile.pointer_mode not in {'palm', 'thumb_lock'}:
+            QMessageBox.information(self, 'Hand poses', 'Select Palm or Index fingertip in Settings and save before calibrating.')
+            return
+        if not self._wake_perception():
+            return
+        from .pose_calibration_ui import PoseCalibrationDialog
+        self.cancel_calibration()
+        self.runtime.start_pose_calibration()
+        try:
+            self.pose_window = PoseCalibrationDialog(self.runtime, self)
+            self._update_pause_button()
+            self.pose_window.exec()
+            self.calibration_feedback = self.pose_window.outcome
+            self.help_label.setText(self.calibration_feedback)
+        finally:
+            self.runtime.finish_pose_calibration()
+            if self.pose_window is not None:
+                self.pose_window.deleteLater()
+            self.pose_window = None
+            self._update_pause_button()
 
     def schedule_capture(self):
         session = self.runtime.calibration_session
@@ -562,7 +591,7 @@ class ControllerWindow(QMainWindow):
         self.capture_button.setText('Capture in 3 seconds')
 
     def open_settings(self):
-        if self.diagnostic_window is not None:
+        if self.diagnostic_window is not None or self.pose_window is not None:
             return
         self.cancel_calibration()
         self.runtime.set_paused(True)
@@ -594,7 +623,7 @@ class ControllerWindow(QMainWindow):
         self.toggle_debug(debug)
 
     def open_diagnostics(self):
-        if self.diagnostic_window is not None or self.settings_window is not None:
+        if self.diagnostic_window is not None or self.settings_window is not None or self.pose_window is not None:
             return
         from .diagnostics import DiagnosticInputAdapter
         from .diagnostics_ui import DiagnosticWindow
@@ -757,7 +786,7 @@ class ControllerWindow(QMainWindow):
         self.activateWindow()
 
     def hide_to_tray(self):
-        if self.closing:
+        if self.closing or self.pose_window is not None:
             return
         if self.tray is None or not self.tray.available():
             self.showMinimized()
@@ -783,6 +812,7 @@ class ControllerWindow(QMainWindow):
         errors = []
         for operation in (
             lambda: self.runtime.set_paused(True),
+            lambda: self.pose_window.reject() if self.pose_window is not None else None,
             lambda: self.diagnostic_window.close() if self.diagnostic_window is not None else None,
             self.runtime.close,
             lambda: self.settings_window.close() if self.settings_window is not None else None,

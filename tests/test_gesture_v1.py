@@ -7,6 +7,7 @@ from vision_control.gesture_v1 import Features, PrimaryHand, SecondHand, feature
 from vision_control.gesture_v1_config import config, DEFAULTS
 from vision_control.diagnostics import DiagnosticInputAdapter
 from vision_control.monitors import ScreenRegion
+from vision_control.locked_clicks import ContactClick
 
 
 def sample(**values):
@@ -21,9 +22,9 @@ class GestureV1Tests(unittest.TestCase):
         self.adapter = DiagnosticInputAdapter()
         self.region = ScreenRegion(-1920,0,1920,1080,'test')
         self.mouse = SimpleNamespace(left_down=False,right_down=False,middle_down=False,
-            profile=SimpleNamespace(pointer_mode='thumb_lock'),
+            profile=SimpleNamespace(pointer_mode='thumb_lock',thresholds={}),
             release_all=Mock(),thumb_control=SimpleNamespace(predict_enabled=True,
-                clicks=Mock(),pending_at=None),layout=SimpleNamespace(target=lambda _:self.region))
+                clicks=Mock(),right_contact=ContactClick(),pending_at=None),layout=SimpleNamespace(target=lambda _:self.region))
 
     def test_modifier_waits_and_release_is_immediate(self):
         s = SecondHand(self.adapter,self.cfg); f = sample(fist=True,fingers=(False,)*4)
@@ -72,6 +73,7 @@ class GestureV1Tests(unittest.TestCase):
         self.mouse.thumb_control.clicks.clear_cycle.assert_not_called()
 
     def test_fist_switch_once_until_release(self):
+        self.cfg['volume']=False
         self.cfg['fist_switch']=True;p=PrimaryHand(self.adapter,self.cfg)
         f=sample(fist=True,fingers=(False,)*4)
         for i in range(41):p.update(f,i*.1,self.mouse)
@@ -81,6 +83,7 @@ class GestureV1Tests(unittest.TestCase):
         self.assertTrue(p.two_hands)
 
     def test_corner_double_fist_and_negative_coordinates(self):
+        self.cfg['volume']=False
         self.cfg['corners']['top_left']='r';self.cfg['fist_switch']=True
         self.adapter.cursor=(-1918,2);p=PrimaryHand(self.adapter,self.cfg)
         fist=sample(fist=True,fingers=(False,)*4);opened=sample()
@@ -95,11 +98,11 @@ class GestureV1Tests(unittest.TestCase):
         for i in range(5):p.update(wide,i*.1,self.mouse)
         p.update(replace(wide,radius=1.,cluster=True),.5,self.mouse)
         keys=[e['key'] for e in self.adapter.events if e['action']=='key_down']
-        self.assertIn('=',keys)
+        self.assertNotIn('=',keys)
         p.reset();self.adapter.events.clear()
-        f=sample(thumb='open',spread=.55,radius=.8,angle=math.radians(175))
+        f=sample(thumb='tucked',fist=True,fingers=(False,)*4)
         for i in range(5):p.update(f,1+i*.1,self.mouse)
-        p.update(replace(f,angle=math.radians(-160)),1.5,self.mouse)
+        p.update(replace(f,palm=(f.palm[0]+.08,f.palm[1])),1.5,self.mouse)
         self.assertIn('media_volume_up',[e['key'] for e in self.adapter.events if e['action']=='key_down'])
 
     def test_actions_preserve_modifier_owner(self):

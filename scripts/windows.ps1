@@ -1,7 +1,8 @@
 param(
     [ValidateSet('setup', 'test', 'run', 'diagnose')]
     [string]$Action = 'test',
-    [int]$CameraIndex = 0
+    [int]$CameraIndex = 0,
+    [switch]$StartPaused
 )
 
 $ErrorActionPreference = 'Stop'
@@ -48,7 +49,11 @@ try {
         }
         'run' {
             Remove-Item Env:QT_QPA_PLATFORM -ErrorAction SilentlyContinue
-            Invoke-Checked $pythonPath @('-m', 'vision_control.launcher', '--camera-index', "$CameraIndex", '--start-paused')
+            $launchArguments = @('-m', 'vision_control.launcher', '--camera-index', "$CameraIndex")
+            if ($StartPaused) {
+                $launchArguments += '--start-paused'
+            }
+            Invoke-Checked $pythonPath $launchArguments
         }
     }
 }

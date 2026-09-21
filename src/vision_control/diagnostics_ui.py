@@ -6,7 +6,7 @@ import time
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget, QSizePolicy
 
 from .diagnostics import DiagnosticInputAdapter, DiagnosticRecorder, frame_record, render_composite
 from .monitors import MonitorLayout, ScreenRegion
@@ -29,8 +29,10 @@ class DiagnosticWindow(QWidget):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.preview = QLabel()
-        self.preview.setMinimumSize(640, 280)
-        layout.addWidget(self.preview)
+        self.preview.setMinimumSize(320, 140)
+        self.preview.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.preview, 1)
         self.start_button = QPushButton('Bắt đầu ghi 30 giây')
         self.start_button.setEnabled(False)
         self.start_button.clicked.connect(self.start_countdown)
@@ -39,6 +41,9 @@ class DiagnosticWindow(QWidget):
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(lambda: self.stop_recording('user_stopped'))
         layout.addWidget(self.stop_button)
+        available = self.screen().availableGeometry()
+        self.resize(min(1200, int(available.width() * .9)),
+                    min(760, int(available.height() * .9)))
         self.timer = QTimer(self)
         self.timer.setInterval(16)
         self.timer.timeout.connect(self.tick)
@@ -110,7 +115,9 @@ class DiagnosticWindow(QWidget):
                     self.stop_recording()
             height, width, _ = composite.shape
             image = QImage(composite.data, width, height, composite.strides[0], QImage.Format.Format_BGR888).copy()
-            self.preview.setPixmap(QPixmap.fromImage(image).scaled(1152, 504, Qt.AspectRatioMode.KeepAspectRatio))
+            self.preview.setPixmap(QPixmap.fromImage(image).scaled(
+                self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation))
         except Exception as exc:
             self.fail(exc)
 

@@ -16,8 +16,8 @@ class GestureV1Panel(QWidget):
         note.setWordWrap(True); self.form.addRow(note)
         for key, title in [('two_hands', 'Enable second hand'),
                            ('fist_switch', 'Right fist 3 s toggles second hand'),
-                           ('scroll', 'Vertical / horizontal scroll'), ('zoom', 'Zoom gestures'),
-                           ('volume', 'Volume rotation'), ('reverse_scroll', 'Reverse scroll')]:
+                           ('scroll', 'Vertical / horizontal scroll'),
+                           ('volume', 'Fist volume: right + / left -'), ('reverse_scroll', 'Reverse scroll')]:
             control = QCheckBox(); self.controls[key] = control; self.form.addRow(title, control)
         self.form = self.section('Fine tuning')
         tuning = self.form
@@ -34,7 +34,7 @@ class GestureV1Panel(QWidget):
             clicks.addRow(title, widget)
         note = QLabel('Pinch starts drag after the confirmation time. Open thumb/index to release. Curl clicks keep their existing timing.')
         note.setWordWrap(True); clicks.addRow(note)
-        motion = group('Scroll / Zoom / Volume')
+        motion = group('Scroll / Volume')
         keys = group('Keys && Symbols')
         for key, title, lo, hi, step in [
             ('modifier_seconds', 'Ctrl / Shift / Alt confirmation (s)', .3, 3, .1),

@@ -3,7 +3,7 @@ from copy import deepcopy
 
 DEFAULTS = {
     'version': 1, 'enabled': True, 'two_hands': True, 'fist_switch': False,
-    'scroll': True, 'zoom': True, 'volume': True, 'modifier_seconds': 1.0,
+    'scroll': True, 'zoom': False, 'volume': True, 'modifier_seconds': 1.0,
     'pose_seconds': .3, 'scroll_speed': 40.0, 'reverse_scroll': False,
     'close_spread': .45, 'wide_spread': .7,
     'symbol_seconds': .5, 'corner_seconds': 2.5,
@@ -60,4 +60,5 @@ def config(raw=None):
         validate_action(action)
         if not action or action in ACTIONS:
             raise ValueError('Finger binding requires a key chord')
+    result['zoom'] = False  # Retired gesture; ignore saved profiles enabling it.
     return result

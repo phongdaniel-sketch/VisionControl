@@ -13,7 +13,8 @@ from .monitors import discover_monitors
 from .overlay import Overlay
 from .paths import resource_root, runtime_data_dir
 from .profile import load_profile
-from .roles import assign_roles
+from .pose_calibration import calibration_path as pose_calibration_path, load_pose_calibration, save_pose_calibration
+from .roles import assign_roles, RoleContinuity
 from .tracker import MediaPipeTracker
 from .types import HandsFrame
 
@@ -62,10 +63,12 @@ class VisionRuntime:
         self.primary_v1 = self.second_v1 = None
         self.profile = None
         self.calibration_session = CalibrationSession()
+        self.pose_calibrating = False
         self.calibration_needed = False
         self.last_snapshot = None
         self.last_log = 0.0
         self.started = False
+        self.role_continuity = RoleContinuity()
 
     def start(self, progress: Callable[[float, str], None] | None = None):
         if self.perception is not None:
@@ -86,6 +89,9 @@ class VisionRuntime:
             self.calibration_needed = self.profile.pointer_mode == 'palm' and not calibration_path.exists()
             calibration = load_calibration(calibration_path)
             self.mouse = MouseController(self.adapter, self.profile, layout, calibration)
+            self.mouse.pose_calibration = (load_pose_calibration(
+                pose_calibration_path(runtime_data_dir(), self.profile))
+                if self.profile.pointer_mode in {'palm', 'thumb_lock'} else None)
             self.keyboard = GestureController(self.adapter, self.profile)
             self.arming = ArmingController(self.profile.arming)
             self.primary_v1 = self.second_v1 = None
@@ -170,6 +176,7 @@ class VisionRuntime:
             read_ms = (after_read-before_read)*1000
             track_ms = (time.perf_counter()-after_read)*1000
         after_tracking = time.perf_counter()
+        result = self.role_continuity.update(result)
         mouse_hand, keyboard_hand = assign_roles(
             result, self.profile.mouse_hand, self.profile.keyboard_hand,
             self.profile.swap_hands)
@@ -182,7 +189,11 @@ class VisionRuntime:
         if mouse_hand is not None and mouse_hand.confidence >= .5:
             mouse_pose = classify_mouse_pose(mouse_hand, (result.width, result.height))
 
-        if self.calibration_session.active:
+        if self.pose_calibrating:
+            self._release_controls()
+            self.mouse.status = 'pose_calibration'
+            gesture = 'pose_calibration'
+        elif self.calibration_session.active:
             self._release_controls()
             self.mouse.status = "calibrating"
             gesture = f"calibrate:{self.calibration_session.stage}"
@@ -191,7 +202,8 @@ class VisionRuntime:
             if self.last_snapshot is not None and sample_time - self.last_snapshot.sample_time > .15:
                 self._release_controls()
             size = (result.width, result.height)
-            primary = features(mouse_hand, size, self.profile.gesture_v1)
+            primary = features(mouse_hand, size, self.profile.gesture_v1,
+                               getattr(self.mouse, 'pose_calibration', None))
             secondary = features(keyboard_hand, size, self.profile.gesture_v1)
             self.mouse.sample_time = sample_time
             consumed = self.primary_v1.update(primary, sample_time, self.mouse)
@@ -285,6 +297,8 @@ class VisionRuntime:
         return snapshot
 
     def set_paused(self, paused: bool) -> None:
+        if not paused and self.pose_calibrating:
+            return
         self.accept_after = time.monotonic()
         self.paused = bool(paused)
         if self.paused:
@@ -297,7 +311,7 @@ class VisionRuntime:
         return self.paused
 
     def start_calibration(self) -> None:
-        if self.calibration_session.active:
+        if self.calibration_session.active or self.pose_calibrating:
             return
         self.calibration_session.start()
         self.set_paused(True)
@@ -337,7 +351,33 @@ class VisionRuntime:
         self.calibration_session.cancel()
         self.set_paused(True)
 
+    def start_pose_calibration(self):
+        if not self.started or self.profile.pointer_mode not in {'palm', 'thumb_lock'}:
+            raise ValueError('Hand pose calibration requires Palm or Index fingertip mode saved in Settings.')
+        self.cancel_calibration()
+        self.pose_calibrating = True
+        self.set_paused(True)
+
+    def finish_pose_calibration(self):
+        self.pose_calibrating = False
+        self.set_paused(True)
+
+    def save_pose_calibration(self, candidate):
+        if not self.pose_calibrating:
+            raise RuntimeError('Pose calibration is not active')
+        save_pose_calibration(pose_calibration_path(runtime_data_dir(), self.profile), candidate)
+        self.mouse.pose_calibration = candidate
+        self.finish_pose_calibration()
+
+    def reset_pose_calibration(self):
+        if not self.pose_calibrating:
+            raise RuntimeError('Pose calibration is not active')
+        pose_calibration_path(runtime_data_dir(), self.profile).unlink(missing_ok=True)
+        self.mouse.pose_calibration = None
+        self.finish_pose_calibration()
+
     def close(self) -> None:
+        self.pose_calibrating = False
         self._release_controls()
         if self.perception is not None:
             self.perception.close()
@@ -352,7 +392,7 @@ class VisionRuntime:
         self.started = False
 
     def cursor_tick(self):
-        if self.paused or self.calibration_session.active or not self.mouse:
+        if self.paused or self.calibration_session.active or self.pose_calibrating or not self.mouse:
             return
         if self.last_snapshot is None or time.monotonic()-self.last_snapshot.sample_time>.15:
             self._release_controls()
@@ -360,6 +400,7 @@ class VisionRuntime:
         self.mouse.thumb_control.advance(time.monotonic())
 
     def _release_controls(self) -> None:
+        self.role_continuity.reset()
         self._safe_cleanup('second hand', self.second_v1, 'reset')
         self._safe_cleanup('primary gestures', self.primary_v1, 'reset')
         self._safe_cleanup("arming state", self.arming, "disarm")

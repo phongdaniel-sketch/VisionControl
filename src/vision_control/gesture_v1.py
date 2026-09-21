@@ -21,9 +21,10 @@ class Features:
     cluster: bool
     thumb_extended: bool = False
     pinch_ratio: float = 1.
+    middle_pinch_ratio: float = 1.
 
 
-def features(hand, size, cfg):
+def features(hand, size, cfg, calibration=None):
     if hand is None or hand.confidence < .7:
         return None
     p = _geometry(hand, size)
@@ -35,6 +36,10 @@ def features(hand, size, cfg):
         return None
     states = finger_states(hand, size)
     thumb = thumb_state(hand, size)
+    if calibration is not None:
+        states = (calibration.finger(hand, 8, size) == 'extended',
+                  calibration.finger(hand, 12, size) == 'extended', *states[2:])
+        thumb = calibration.thumb(hand, size)
     tips = (8, 12, 16, 20)
     spread = sum(distance(p[a], p[b]) for a, b in zip(tips, tips[1:])) / (3 * scale)
     pinch = distance(p[4], p[8]) / scale < .28
@@ -57,6 +62,8 @@ def features(hand, size, cfg):
                     (_joint_angle(p[2], p[3], p[4]) or 0) >= 150 and
                     distance(p[4], p[0]) > distance(p[3], p[0]) + .02 * scale,
                     distance(hand.landmarks[4], hand.landmarks[8]) /
+                    max(distance(hand.landmarks[0], hand.landmarks[9]), .001),
+                    distance(hand.landmarks[4], hand.landmarks[12]) /
                     max(distance(hand.landmarks[0], hand.landmarks[9]), .001))
 
 
@@ -131,7 +138,6 @@ class PrimaryHand:
         self.corner = ''; self.corner_started = 0.; self.corner_count = 0
         self.corner_closed = False; self.corner_latched = False; self.corner_gate = Stability()
         self.last_step = 0.
-        self.zoom_active = False
 
     def corner_at(self, region):
         x, y = self.adapter.position()
@@ -161,16 +167,49 @@ class PrimaryHand:
         if mouse.left_down or mouse.right_down or mouse.middle_down:
             self.mode = ''; self.gate = Stability(); self.switch_gate = Stability()
             return False  # Existing drag owns the sequence, including release.
+        if self.cfg['volume'] and f.fist and not any(f.fingers):
+            mouse.thumb_control.predict_enabled = False
+            mouse.thumb_control.clicks.reset()
+            mouse.thumb_control.pending_at = mouse.thumb_control.ready_at = None
+            mouse.thumb_control.right_contact.armed = False
+            mouse.thumb_control.right_contact.latched = True
+            self.switch_gate = Stability()
+            if self.mode != 'volume':
+                self.mode = ''
+                ready, self.progress = self.gate.update('volume', now, self.cfg['pose_seconds'])
+                self.status = f'Volume ready {self.progress:.0%}'
+                if ready:
+                    self.mode = 'volume'; self.anchor = f; self.last_step = now
+            else:
+                delta = f.palm[0] - self.anchor.palm[0]
+                if abs(delta) >= .04 and now - self.last_step >= .12:
+                    self.adapter.perform('volume_up' if delta > 0 else 'volume_down')
+                    self.anchor = f; self.last_step = now
+                self.status = 'volume'
+            return True
+        if self.mode == 'volume' or self.gate.name == 'volume':
+            self.mode = ''; self.gate = Stability(); self.anchor = None
+        if mouse.profile.pointer_mode in {'palm', 'thumb_lock'}:
+            opened = mouse.profile.thresholds.get('pinch_open_ratio', .45)
+            contact = mouse.thumb_control.right_contact
+            contact.observe_separated(f.middle_pinch_ratio > opened and f.pinch_ratio > opened)
+            if f.middle_pinch_ratio <= opened or contact.latched:
+                # Contact owns approach, click and hold before motion/symbol gestures.
+                self.mode = ''; self.gate = Stability(); self.switch_gate = Stability()
+                return False
+        clicks = mouse.thumb_control.clicks
+        if mouse.profile.pointer_mode == 'palm' and f.thumb == 'open':
+            clicks.observe_extended('open', {
+                'index': 'extended' if f.fingers[0] else 'unknown',
+                'middle': 'extended' if f.fingers[1] else 'unknown',
+            }, now)
+            if clicks.cycle_active:
+                self.mode = ''; self.gate = Stability()
+                return False
         # Volume must not swallow the separation that prepares a pinch drag.
         opened = getattr(mouse.profile, 'thresholds', {}).get('pinch_open_ratio', .45)
         if not f.pinch and f.pinch_ratio > opened:
             mouse.thumb_control.ready_at = now
-        if self.mode == 'volume' or self.gate.name == 'volume':
-            if f.pinch or not all(f.fingers) or f.pinch_ratio <= max(.75, opened + .15):
-                self.mode = ''; self.gate = Stability()
-                self.status = 'Pinch priority'
-                if not (f.symbol and self.cfg['symbols'].get(f.symbol)):
-                    return False
         corner = self.corner_at(mouse.layout.target(self.adapter.position()))
         action = self.cfg['corners'].get(corner, '')
         if corner != self.corner or now - self.corner_started > self.cfg['corner_seconds']:
@@ -201,19 +240,12 @@ class PrimaryHand:
             return True
         self.switch_gate.update('', now, 3.)
         candidate = self.candidate(f)
-        if self.mode == 'zoom' and not self.zoom_active and candidate.startswith('symbol:'):
-            self.mode = ''; self.gate = Stability()
         if self.mode:
             return self.advance(f, candidate, now, mouse)
         ready, self.progress = self.gate.update(candidate, now,
             self.cfg['symbol_seconds'] if candidate.startswith('symbol:') else self.cfg['pose_seconds'])
         if not candidate:
             self.status = ''; return False
-        if candidate == 'zoom':
-            if ready:
-                self.mode = candidate; self.anchor = f; self.last_step = now; self.zoom_active = False
-            if not f.cluster:
-                return False  # A spread palm is also the ordinary movement pose.
         if candidate == 'scroll':
             # A stationary open thumb is still the user's click lock.
             # Reserve scrolling only after directional movement is observed.
@@ -239,11 +271,7 @@ class PrimaryHand:
             return 'symbol:' + f.symbol
         if self.cfg['scroll'] and f.thumb == 'open' and all(f.fingers) and f.spread <= self.cfg['close_spread']:
             return 'scroll'
-        if self.cfg['zoom'] and ((all(f.fingers) and f.thumb == 'open' and f.spread >= self.cfg['wide_spread']) or (f.cluster and not f.fist)):
-            return 'zoom'
-        if (self.cfg['volume'] and f.thumb == 'open' and not f.pinch and
-                f.pinch_ratio > .75 and all(f.fingers) and
-                self.cfg['close_spread'] < f.spread < self.cfg['wide_spread'] and f.radius < 1.2):
+        if self.cfg['volume'] and f.fist and not any(f.fingers):
             return 'volume'
         return ''
 
@@ -275,27 +303,6 @@ class PrimaryHand:
                         self.status = 'Scroll ready'
                         return True
                     return False
-        elif self.mode == 'zoom':
-            keep = not f.fist and now - self.last_step < 2.
-            delta = self.anchor.radius - f.radius
-            full_transition = (f.cluster if delta > 0 else
-                               all(f.fingers) and f.thumb == 'open' and f.spread >= self.cfg['wide_spread'])
-            if keep and full_transition and abs(delta) > .18 and now - self.last_step >= .12:
-                self.zoom_active = True
-                mouse.thumb_control.clicks.clear_cycle()
-                mouse.thumb_control.pending_at = None
-                self.adapter.perform('zoom_in' if delta > 0 else 'zoom_out')
-                self.anchor = f; self.last_step = now
-            elif not self.zoom_active and not self.anchor.cluster:
-                if not keep:
-                    self.mode = ''; self.gate = Stability()
-                return False
-        else:
-            keep = candidate == 'volume'
-            delta = math.atan2(math.sin(f.angle - self.anchor.angle), math.cos(f.angle - self.anchor.angle))
-            if keep and abs(delta) > math.radians(15) and now - self.last_step >= .12:
-                self.adapter.perform('volume_up' if delta > 0 else 'volume_down')
-                self.anchor = f; self.last_step = now
         self.status = self.mode
         if not keep:
             self.mode = ''; self.gate = Stability(); mouse.release_all()

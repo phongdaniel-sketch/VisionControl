@@ -2,7 +2,7 @@
 import math
 import time
 from .gestures import _geometry, _joint_angle, finger_extended, pinch, thumb_state
-from .locked_clicks import LockedFingerClicks
+from .locked_clicks import LockedFingerClicks, ContactClick
 from .cursor_filter import CursorFilter, output_step
 
 class ThumbControl:
@@ -12,6 +12,7 @@ class ThumbControl:
 
     def reset(self):
         self.clicks = LockedFingerClicks()
+        self.right_contact = ContactClick()
         self.ready_at = self.pending_at = None
         self.release_since = None
         self.palm_anchor = self.cursor_anchor = None
@@ -20,7 +21,9 @@ class ThumbControl:
         self.last_emit_time = None
 
     @staticmethod
-    def finger(hand, tip, size):
+    def finger(hand, tip, size, calibration=None):
+        if calibration is not None:
+            return calibration.finger(hand, tip, size)
         if finger_extended(hand, tip, size): return 'extended'
         points = _geometry(hand, size)
         if points is None: return 'unknown'
@@ -71,17 +74,21 @@ class ThumbControl:
         palm_mode = o.profile.pointer_mode == 'palm'
         if _geometry(hand, size) is None:
             o.release_all(); o.status = 'invalid_hand'; return
-        thumb = thumb_state(hand, size)
+        calibration = getattr(o, 'pose_calibration', None)
+        thumb = calibration.thumb(hand, size) if calibration else thumb_state(hand, size)
         o.target_region = o.layout.target(o.adapter.position())
         close = o.profile.thresholds.get('pinch_close_ratio', .28)
         opened = o.profile.thresholds.get('pinch_open_ratio', .45)
         touching = pinch(hand,4,8,close,opened,o.left_down or self.pending_at is not None)
         separated = not pinch(hand,4,8,close,opened,True)
-        if separated and not o.left_down:
+        middle_touching = pinch(hand,4,12,close,opened,False)
+        middle_separated = not pinch(hand,4,12,close,opened,True)
+        if separated and middle_separated and not o.left_down:
             self.ready_at = now
         palm = tuple(sum(hand.landmarks[i][axis] for i in (0,5,9,13,17))/5 for axis in (0,1))
-        o.raw_pinches = (touching,False)
+        o.raw_pinches = (touching,middle_touching)
         if o.left_down:
+            self.right_contact.reset()
             self.predict_enabled = False
             self.clicks.clear_cycle()
             if not touching:
@@ -104,6 +111,24 @@ class ThumbControl:
                       max(region.y,min(region.y+region.height-1,self.cursor_anchor[1]+dy*region.height)))
             self.move(target)
             o.status = 'left_drag'; o.pinch_decision = 'drag_held'; return
+        right_click = self.right_contact.update(
+            middle_touching, separated and middle_separated,
+            conflict=touching and not middle_separated)
+        if not middle_separated or self.right_contact.latched:
+            self.predict_enabled = False
+            self.clicks.clear_cycle()
+            self.pending_at = self.ready_at = None
+            o.pinch_decision = 'right_contact' if not touching else 'ambiguous_pinch'
+            o.status = 'right_contact' if not touching else 'separate_fingertips_first'
+            if right_click:
+                try:
+                    o.right_down = True
+                    o.adapter.button_down('right')
+                finally:
+                    o.adapter.button_up('right')
+                    o.right_down = False
+                o.status = 'right_click'
+            return
         if touching:
             self.predict_enabled = False
             self.clicks.clear_cycle()
@@ -120,7 +145,7 @@ class ThumbControl:
                 o.status = 'left_drag'; o.pinch_decision = 'drag_started'
             return
         self.pending_at = None
-        fingers = {name:self.finger(hand,tip,size) for name,tip in [('index',8),('middle',12)]}
+        fingers = {name:self.finger(hand,tip,size,calibration) for name,tip in [('index',8),('middle',12)]}
         buttons = self.clicks.update(thumb,fingers,False,now)
         o.pinch_decision = 'open'
         if not palm_mode and (thumb != 'tucked' or self.clicks.locked):

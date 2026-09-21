@@ -6,8 +6,8 @@ class LockedClickTests(unittest.TestCase):
         return c.update(thumb,{'index':index,'middle':middle},pinch,t)
     def locked(self):
         c=LockedFingerClicks();self.step(c,0);self.step(c,.13);return c
-    def test_three_release_completed_cycles(self):
-        for index,middle,button in [('curled','extended','left'),('extended','curled','middle'),('curled','curled','right')]:
+    def test_release_completed_cycles(self):
+        for index,middle,button in [('curled','extended','left'),('curled','curled','middle')]:
             c=self.locked()
             self.assertEqual(self.step(c,.2,index,middle),())
             self.assertEqual(self.step(c,.27,index,middle),())
@@ -18,7 +18,11 @@ class LockedClickTests(unittest.TestCase):
         self.step(c,.2,'curled');self.step(c,.27,'curled','curled')
         self.step(c,.34,'curled','curled')
         self.assertEqual(self.step(c,.4,'extended','curled'),())
-        self.assertEqual(self.step(c,.45),('right',))
+        self.assertEqual(self.step(c,.45),('middle',))
+    def test_middle_only_curl_no_longer_clicks(self):
+        c=self.locked()
+        self.step(c,.2,'extended','curled');self.step(c,.27,'extended','curled')
+        self.assertEqual(self.step(c,.3),())
     def test_cold_curl_and_pinch_do_not_click(self):
         c=LockedFingerClicks()
         for t in (0,.13,.25):self.assertEqual(self.step(c,t,'curled','curled'),())

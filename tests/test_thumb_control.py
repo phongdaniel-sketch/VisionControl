@@ -22,7 +22,7 @@ class ThumbControlTests(unittest.TestCase):
             for i in range(tip-2,tip+1):pts[i]=folded.landmarks[i]
         return replace(h,landmarks=tuple(pts))
     def test_all_clicks_locked_at_same_coordinate(self):
-        for tips,button in [([8],'left'),([12],'middle'),([8,12,16,20],'right')]:
+        for tips,button in [([8],'left'),([8,12],'middle'),([8,12,16,20],'middle')]:
             self.c.release_all();self.a.drain()
             self.step(pose('open'),0);self.step(pose('open'),.13)
             anchor=self.a.position()

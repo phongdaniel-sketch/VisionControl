@@ -21,14 +21,16 @@ def display_name(raw):
 
 
 def mouse_guide(profile):
-    if profile.pointer_mode == 'thumb_lock':
+    if profile.pointer_mode in {'thumb_lock', 'palm'}:
         start_ms = profile.thresholds.get('pinch_confirm_seconds', .1) * 1000
         release_ms = profile.thresholds.get('pinch_release_seconds', .1) * 1000
+        movement = ('Thumb tucked = move\nThumb open = lock' if profile.pointer_mode == 'thumb_lock'
+                    else 'Pointer follows palm center')
         return [
-            ('Move / lock', 'Thumb tucked = move\nThumb open = lock'),
+            ('Move pointer', movement),
             ('Left click', 'Index: curl → straighten'),
-            ('Right click', 'Index + middle: together\ncurl → straighten'),
-            ('Middle click', 'Middle: curl → straighten'),
+            ('Right click', 'Thumb + middle: touch = click\nSeparate before the next click'),
+            ('Middle click', 'Index + middle: together\ncurl → straighten'),
             ('Drag', f'Thumb + index: apart → pinch {start_ms:g} ms\nMove palm; apart {release_ms:g} ms to drop.'),
         ]
     thresholds = profile.thresholds

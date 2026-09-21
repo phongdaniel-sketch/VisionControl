@@ -99,8 +99,10 @@ class MouseController:
             self.release_all(); self.paused = True; self.status = "no_hand"; self.last = None; return
         if len(hand.landmarks) < 21:
             self.release_all(); self.paused = True; self.status = "invalid_hand"; return
+        calibration = getattr(self, 'pose_calibration', None)
+        thumb = calibration.thumb(hand, frame_size) if calibration else thumb_state(hand, frame_size)
         if (is_closed_fist(hand, frame_size) and
-                (self.profile.pointer_mode not in {'thumb_lock', 'palm'} or thumb_state(hand, frame_size) != 'open')):
+                (self.profile.pointer_mode not in {'thumb_lock', 'palm'} or thumb != 'open')):
             self.release_all(); self.paused = True; self.status = "paused"; self.last = None; return
         self.paused = False
         if self.profile.pointer_mode in {'thumb_lock', 'palm'}:

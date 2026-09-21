@@ -437,3 +437,95 @@ See docs/plans/tray-performance-results.md for the measured M4 comparison:
 hidden Paused substantially reduced process CPU and RSS; active tray did not show
 a demonstrated CPU/FPS advantage in the short live-camera samples. No changes to
 the recognition model or pointer filtering were made as part of this update.
+
+## Palm curl-click arbitration (2026-09-19)
+
+Palm open-thumb scroll/zoom/volume recognition now preserves the extended index
+and middle preparation required by curl clicks. Once a curl cycle begins, primary
+gesture arbitration yields until re-extension emits left/middle/right click;
+active scroll still owns its motion. The Palm guide now correctly describes palm
+movement and curl/re-extension clicks instead of legacy pinch-click instructions.
+Physical hand acceptance remains pending after restarting the app.
+
+## Guided hand pose calibration (2026-09-19)
+
+Calibrate > Hand poses now collects open thumb, tucked thumb, index curl,
+middle curl and both curls. It requires multiple fresh stable frames, separated
+pose distributions, then side-effect-free click rehearsal before Save. The
+runtime guards Start and cursor output while the modal wizard is active; closing
+or cancelling keeps the old calibration and leaves input paused.
+
+Thresholds are stored atomically in data/pose_calibration_{hand}_swap{0|1}.json
+(under runtime_data_dir), scoped to mouse hand / swap assignment. They affect
+Palm/Thumb lock curl clicks and primary-hand arbitration only. Movement bounds,
+keyboard recognition and pinch/drag thresholds remain unchanged. Reset requires
+confirmation; malformed files fall back to defaults. No camera smoke or real-hand
+accuracy claim: complete docs/plans/guided-pose-calibration.md acceptance first.
+
+## Calibration guidance and Settings clarity (2026-09-19)
+
+Pose wizard instructions are now Vietnamese with a schematic hand beside the live
+preview. Every capture waits for explicit Next or Retry; click rehearsal guides
+one missing check at a time. Hand presence is checked after the three-second
+preparation countdown, not while the user is leaving the physical mouse.
+
+Startup Off is still overridden by an explicit --start-paused launch. The Windows
+helper now follows saved preferences by default; use scripts/windows.ps1 run
+-StartPaused to force a safe paused launch. Settings explains the override and
+does not change user preferences. Point-pose edge switching is legacy-only and
+is disabled in Settings for Palm/current Index fingertip; no new switching
+behavior was introduced. Verified 184 deterministic tests and offscreen layouts;
+physical acceptance remains pending. Restart the source app for the new wizard.
+
+## Updated click mapping (2026-09-19)
+
+Supersedes earlier curl mapping: index curl/re-extension = left; paired index +
+middle curl/re-extension = middle; thumb/middle contact = immediate right click.
+Middle-only curl no longer clicks. Applies to Palm and thumb_lock only.
+
+ContactClick is shared by runtime and inert calibration rehearsal. It rearms only
+after both thumb/index and thumb/middle are separated; cold contacts, ambiguous
+three-tip contact and hand-loss reacquisition do not click. Existing left drag
+owns its release. Primary arbitration yields to middle contact before motion or
+symbols. Do not reintroduce the old both-curl = right mapping in guides/tests.
+
+193 tests + compileall/diff check passed; Vietnamese contact illustration checked
+offscreen. Physical acceptance remains pending. See contact-right-click.md under
+requirements/plans and updated gesture-acceptance-vi.md. Personal files untouched.
+
+## Relaxed-hand volume (2026-09-19)
+
+Supersedes the old four-extended-finger volume requirement. User explicitly chose
+open hand for pointing, loosely curled four fingers + wrist rotation for volume.
+Features.relaxed uses four MCP/PIP/tip angles in 70..150 degrees and excludes
+a closed fist regardless of thumb state. Volume additionally excludes extended
+hands, clustered fingertips, tucked thumb and either near pinch. It keeps the
+existing pose confirmation/15-degree rotation thresholds. Open hand exits volume
+and returns False immediately so pointer movement resumes without another pose.
+
+Dormant wide-hand zoom can yield to relaxed volume. Existing scroll, contact-right
+click, paired-curl middle click, left drag and assigned OK priorities remain.
+Guide/UI/acceptance docs updated; 203 tests + compileall/diff check passed. Personal
+files unchanged; physical recognition and ergonomics are still pending retest.
+
+## Volume rollback (2026-09-19)
+
+Supersedes the relaxed-hand experiment above. Real-hand testing failed to detect
+Volume reliably and confused it with Scroll; the user requested the old behavior.
+Restored four extended fingers, original volume exit and pending zoom priorities.
+Right-contact click, paired-curl middle click, calibration and startup behavior
+are unchanged. Guide and acceptance instructions match the restored behavior.
+Automated verification is recorded in development-status.md; physical ergonomics
+still require a retest. An already-running app needs a restart to load this code.
+
+## Duplicate role continuity (2026-09-21)
+
+RoleContinuity now resolves same-label candidates only with a unique recent palm
+match (age <=150 ms, normalized RMS <=0.3, runner-up margin >=0.2). Missing or
+ambiguous frames discard identity; control release resets history. Filtered
+observations are shared by runtime, snapshots, calibration and diagnostics.
+No confidence-only selection, stale landmark reuse or cross-label reassignment.
+205 tests plus compileall/diff check passed. Offline role replay reduced missing
+frames in 114557 from 64 to 18; 114232 stayed at zero; 113409 fell 134 to 105.
+This measures role availability, not proven identity accuracy or OS cursor latency.
+Real-hand retest after restart is required. Personal settings were not changed.

@@ -1,0 +1,1 @@
+session_id,test_id,participant_id,pointer_mode,condition,trial,expected,actual_events,outcome,total_latency_ms,post_confirmation_latency_ms,release_latency_ms,stuck_input,clip_file,clip_timestamp,notes

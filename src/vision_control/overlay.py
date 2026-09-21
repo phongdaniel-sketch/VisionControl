@@ -56,6 +56,10 @@ class Overlay:
         tx, ty, _ = hand.landmarks[4]
         thumb = (int(tx * width), int(ty * height))
         self.cv2.circle(frame, thumb, 10, (255, 220, 0), 2, self.cv2.LINE_AA)
+        mx, my, _ = hand.landmarks[12]
+        middle = (int(mx * width), int(my * height))
+        self.cv2.circle(frame, middle, 12, (70, 255, 70), 3, self.cv2.LINE_AA)
+        self.cv2.circle(frame, middle, 3, (70, 255, 70), -1, self.cv2.LINE_AA)
         return frame
 
     def draw_calibration(self, frame, calibration):

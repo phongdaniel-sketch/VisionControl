@@ -95,6 +95,15 @@ class ControllerClarityTests(unittest.TestCase):
         self.assertIn('middle', entries['Left click / drag'])
         self.assertEqual(entries['Right click / drag'], 'Disabled')
 
+    def test_palm_guide_describes_curl_clicks_and_palm_movement(self):
+        profile = replace(self.runtime.profile, pointer_mode='palm')
+        entries = dict(mouse_guide(profile))
+        self.assertIn('palm center', entries['Move pointer'])
+        self.assertIn('Index + middle', entries['Middle click'])
+        self.assertIn('curl', entries['Middle click'])
+        self.assertIn('Thumb + middle', entries['Right click'])
+        self.assertIn('touch = click', entries['Right click'])
+
     def test_paused_status_still_shows_pose_and_role_aware_guide(self):
         from PySide6.QtWidgets import QLabel
         window = self.window()
