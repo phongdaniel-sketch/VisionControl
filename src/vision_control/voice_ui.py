@@ -579,20 +579,25 @@ class VoiceService(QObject):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(root)))
         except OSError as exc:self.status(str(exc))
 
-    def open_dialog(self):
-        if self.dialog is not None:
+    def open_dialog(self, embedded=False):
+        if not embedded and self.dialog is not None:
             self.dialog.show();self.dialog.raise_();return
-        box=QDialog(self.window);box.setWindowTitle('Voice Control')
+        box=QWidget() if embedded else QDialog(self.window)
+        box.setWindowTitle('Voice')
         area=self.window.screen().availableGeometry()
         box.resize(min(680,area.width()-60),min(760,area.height()-80))
         outer=QVBoxLayout(box)
         scroll=QScrollArea();scroll.setWidgetResizable(True)
         content=QWidget();form=QFormLayout(content)
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        scroll.setWidget(content);outer.addWidget(scroll)
-        enabled=QCheckBox('Bật điều khiển giọng nói');enabled.setChecked(self.config['enabled'])
-        speech=QCheckBox('Phản hồi bằng giọng nói');speech.setChecked(self.config['speech'])
-        logging=QCheckBox('Lưu log chẩn đoán (gồm câu nhận diện, không âm thanh)')
+        if embedded:
+            outer.addWidget(content)
+            scroll.deleteLater()
+        else:
+            scroll.setWidget(content);outer.addWidget(scroll)
+        enabled=QCheckBox('Enable voice control');enabled.setChecked(self.config['enabled'])
+        speech=QCheckBox('Spoken responses');speech.setChecked(self.config['speech'])
+        logging=QCheckBox('Diagnostic logging')
         logging.setChecked(self.config.get('diagnostic_log', False))
         logging.setToolTip(str(self.path.parent/'voice_diagnostics.jsonl'))
         debug_button=QPushButton('Voice Debug...')
@@ -606,37 +611,43 @@ class VoiceService(QObject):
             except Exception as exc:self.status(str(exc))
             index = devices.findData(selected)
             if index < 0:
-                devices.insertItem(0, selected+' (không kết nối)', selected)
+                devices.insertItem(0, selected+' (disconnected)', selected)
                 devices.model().item(0).setEnabled(False)
                 index = 0
             devices.setCurrentIndex(index)
         refresh_devices()
-        refresh=QPushButton('Làm mới micro');refresh.clicked.connect(refresh_devices)
+        refresh=QPushButton('Refresh microphones');refresh.clicked.connect(refresh_devices)
         hotkey=QComboBox();hotkey.setEditable(True)
         hotkey.addItems(['Ctrl+Alt+Space', 'Ctrl+Shift+Space', 'Ctrl+Space', 'Alt+Space', 'Ctrl+Alt+V', 'Ctrl+Shift+V', 'Ctrl+F8'])
         hotkey.setCurrentText(self.config['hotkey'])
         provider=QComboBox();provider.addItem('Whisper · Local', 'local');provider.addItem('Gemini 2.5 Flash · Online', 'gemini')
         provider.setCurrentIndex(max(0,provider.findData(self.config.get('provider','local'))))
-        consent=QCheckBox('Đồng ý gửi đoạn nói tới Google (cần Internet, có thể tính phí)')
+        consent=QCheckBox('Allow audio uploads to Google')
+        consent.setToolTip('Internet required. Google API charges may apply.')
         consent.setChecked(self.config.get('cloud_consent',False))
         api_key=QLineEdit();api_key.setEchoMode(QLineEdit.EchoMode.Password)
         api_key.setMaxLength(512)
-        api_key.setPlaceholderText('Đã lưu key · Để trống để giữ nguyên' if self.secret_path.exists() else 'Gemini API key')
-        remove_key=QCheckBox('Xóa API key đã lưu')
+        api_key.setPlaceholderText('Key saved; leave blank to keep' if self.secret_path.exists() else 'Gemini API key')
+        remove_key=QCheckBox('Delete saved API key')
         def provider_changed():
             online=provider.currentData()=='gemini'
             consent.setEnabled(online)
             api_key.setEnabled(online)
         provider.currentIndexChanged.connect(provider_changed)
         provider_changed()
-        status=QLabel(self.message);status.setWordWrap(True)
-        self.changed.connect(status.setText)
-        diagnostic=QLabel(self.last_diagnostic)
+        status=QLabel();status.setWordWrap(True)
+        def update_status(_message=None):
+            status.setText('Status: '+self.state.replace('_',' ').title())
+        update_status()
+        self.changed.connect(update_status)
+        diagnostic=QLabel('No test result yet.')
         diagnostic.setWordWrap(True)
         diagnostic.setTextFormat(Qt.TextFormat.PlainText)
         diagnostic.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.diagnostic_changed.connect(diagnostic.setText)
-        form.addRow(enabled);form.addRow('Micro',devices);form.addRow('Hotkey',hotkey);form.addRow(speech)
+        def update_diagnostic(_message):
+            diagnostic.setText('Test completed. See Voice Debug for recognition details.')
+        self.diagnostic_changed.connect(update_diagnostic)
+        form.addRow(enabled);form.addRow('Microphone',devices);form.addRow('Hotkey',hotkey);form.addRow(speech)
         form.addRow('Speech-to-Text',provider)
         form.addRow('API key',api_key)
         form.addRow(consent);form.addRow(remove_key)
@@ -644,17 +655,38 @@ class VoiceService(QObject):
         form.addRow(logging)
         form.addRow(debug_button)
         form.addRow(status)
-        form.addRow('Kết quả gần nhất', diagnostic)
-        test=QPushButton('Giữ để thử micro');test.pressed.connect(lambda:self.begin(True));test.released.connect(lambda:self.stop_capture.set())
+        form.addRow('Last test', diagnostic)
+        test=QPushButton('Hold to test microphone');test.pressed.connect(lambda:self.begin(True));test.released.connect(lambda:self.stop_capture.set())
         form.addRow(test)
-        save=QPushButton('Lưu');outer.addWidget(save)
+        commands=QLabel('Supported commands\n\n'
+            'Open This PC: “Mở máy tính”\n'
+            'Time: “Mấy giờ rồi”, “Bây giờ là mấy giờ”\n'
+            'Date: “Hôm nay là ngày mấy”\n'
+            'Weekday: “Hôm nay là thứ mấy”\n'
+            'Copy: “Copy”, “Sao chép”\n'
+            'Paste: “Paste”, “Dán”, “Dạ”, “Dán nội dung”, “Dán văn bản”\n'
+            'Timer: “Hẹn giờ 10 phút”, “Báo thức sau 10 giây” (1 second to 24 hours)\n'
+            'Cancel timer: “Hủy hẹn giờ”, “Hủy báo thức”\n'
+            'Time remaining: “Còn bao nhiêu phút”, “Hẹn giờ còn bao lâu”\n'
+            'Close window: “Đóng cửa sổ”, “Tắt app”\n'
+            'Lock screen: “Khóa máy”, “Khóa máy tính”, “Khóa màn hình”')
+        commands.setWordWrap(True)
+        form.addRow(commands)
+        save=QPushButton('Save voice settings')
+        if not embedded:outer.addWidget(save)
+        def values():
+            return (enabled.isChecked(), devices.currentData(), hotkey.currentText(),
+                    speech.isChecked(), logging.isChecked(), provider.currentData(),
+                    consent.isChecked(), remove_key.isChecked(), api_key.text())
+        original_values = values()
         def apply():
             try:
+                if embedded and values() == original_values:return True
                 chord = parse_hotkey(hotkey.currentText())[0]
                 if enabled.isChecked() and not devices.model().item(devices.currentIndex()).isEnabled():
-                    raise ValueError('Hãy chọn micro đang kết nối.')
+                    raise ValueError('Select a connected microphone.')
                 if enabled.isChecked() and provider.currentData()=='gemini' and (not consent.isChecked() or remove_key.isChecked()):
-                    raise ValueError('Gemini cần API key và đồng ý gửi âm thanh.')
+                    raise ValueError('Gemini requires an API key and upload consent.')
                 if remove_key.isChecked():
                     voice_secret.delete_key(self.secret_path)
                 elif api_key.text().strip():
@@ -664,16 +696,28 @@ class VoiceService(QObject):
                                     hotkey=chord,speech=speech.isChecked(),
                                     diagnostic_log=logging.isChecked(),provider=provider.currentData(),
                                     cloud_consent=consent.isChecked(),debug_audio=False))
-                box.accept()
-            except Exception as exc:self.status(str(exc))
+                if not embedded:box.accept()
+                return True
+            except Exception as exc:
+                self.message = 'Could not save voice settings: '+str(exc)
+                status.setText('Could not save voice settings: '+str(exc))
+                return False
+        box.apply_voice = apply
         save.clicked.connect(apply)
         def done():
             api_key.clear()
             self.stop_capture.set()
-            self.dialog=None
-            self.changed.disconnect(status.setText)
-            self.diagnostic_changed.disconnect(diagnostic.setText)
-            box.deleteLater()
+            if not embedded:self.dialog=None
+            self.changed.disconnect(update_status)
+            self.diagnostic_changed.disconnect(update_diagnostic)
+            if not embedded:box.deleteLater()
+        if embedded:
+            def cleanup():
+                self.stop_capture.set()
+                self.changed.disconnect(update_status)
+                self.diagnostic_changed.disconnect(update_diagnostic)
+            box.destroyed.connect(cleanup)
+            return box
         box.finished.connect(done)
         self.dialog=box;box.show()
 

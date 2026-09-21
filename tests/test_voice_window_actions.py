@@ -6,6 +6,9 @@ from vision_control.voice_commands import Command, parse_command
 class WindowActionTests(test_voice.VoiceServiceTests):
     def test_phrases(self):
         self.assertEqual(parse_command('Đóng cửa sổ'), Command('close_window'))
+        self.assertEqual(parse_command('Tắt app.'), Command('close_window'))
+        self.assertIsNone(parse_command('Đừng tắt app'))
+        self.assertIsNone(parse_command('Tắt app rồi khóa máy'))
         for text in ('Khóa máy', 'Khóa máy tính', 'Khóa màn hình'):
             self.assertEqual(parse_command(text), Command('lock_computer'))
         for text in ('Tắt máy', 'shutdown', 'sleep', 'Đừng đóng cửa sổ'):

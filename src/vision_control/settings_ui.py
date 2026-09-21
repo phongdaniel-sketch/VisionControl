@@ -405,19 +405,13 @@ class SettingsWindow(QMainWindow):
         self.pages = QStackedWidget()
         builders = {
             "General": self._general_page, "Camera": self._camera_page,
-            "Mouse": self._mouse_page, "Gestures": self._current_gestures_page,
+            "Mouse": self._mouse_page, "Voice": self._voice_page, "Gestures": self._current_gestures_page,
             "Preview & Debug": self._preview_page, "Displays": self._displays_page,
         }
-        for name in ("General", "Camera", "Mouse", "Gestures", "Preview & Debug",
+        for name in ("General", "Camera", "Mouse", "Voice", "Gestures", "Preview & Debug",
                      "Displays"):
             self._add_nav(name, nav_layout, builders[name]())
-        self.voice_button = QPushButton("  Voice · Coming soon")
-        self.voice_button.setObjectName("nav")
-        self.voice_button.setEnabled(False)
-        self._describe(self.voice_button,
-                       "Voice control is planned for a future release.")
-        nav_layout.addWidget(self.voice_button)
-        self.voice_button.hide()
+        self.voice_button = self.nav_buttons['Voice']
         nav_layout.addStretch()
         content.addWidget(sidebar)
         content.addWidget(self.pages, 1)
@@ -505,9 +499,6 @@ class SettingsWindow(QMainWindow):
         form.addRow(self.start_paused)
         form.addRow(self.start_minimized)
         form.addRow(self.start_with_desktop)
-        voice = QPushButton('Voice Control')
-        voice.clicked.connect(self.open_voice)
-        form.addRow(voice)
         startup_hint = QLabel('On: wait for Start. Off: a normal launch may enable control immediately. '
             'Save applies this to the next launch; closing Settings never starts control. '
             'An explicit --start-paused or windows.ps1 run -StartPaused overrides Off. '
@@ -533,6 +524,17 @@ class SettingsWindow(QMainWindow):
         notice.setWordWrap(True)
         form.addRow(notice)
         return self._page("Camera", "Choose the local camera used for tracking.", group)
+
+    def _voice_page(self):
+        parent = self.parent()
+        service = getattr(parent, 'voice', None)
+        if service is None and parent is not None and hasattr(parent, 'runtime'):
+            from .voice_ui import VoiceService
+            service = VoiceService(parent)
+            parent.voice = service
+        self.voice_settings_panel = service.open_dialog(embedded=True) if service else None
+        body = self.voice_settings_panel or QLabel('Voice settings are available from the main controller.')
+        return self._page('Voice', 'Vietnamese voice commands', body)
 
     def open_voice(self):
         parent = self.parent()
@@ -791,6 +793,8 @@ class SettingsWindow(QMainWindow):
 
     def save(self):
         try:
+            if self.voice_settings_panel is not None and not self.voice_settings_panel.apply_voice():
+                return
             mouse_hand = self.mouse_hand.currentText()
             raw = json.loads(json.dumps(self.raw_profile))
             raw["mouse_hand"] = mouse_hand

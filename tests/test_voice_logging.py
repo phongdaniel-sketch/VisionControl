@@ -35,7 +35,7 @@ class VoiceLogServiceTests(test_voice.VoiceServiceTests):
         with patch('vision_control.voice_audio.input_devices',return_value=[(self.service.config['device'],1)]):
             self.service.open_dialog()
         from PySide6.QtWidgets import QPushButton
-        return next(b for b in self.service.dialog.findChildren(QPushButton) if b.text()=='Lưu')
+        return next(b for b in self.service.dialog.findChildren(QPushButton) if b.text()=='Save voice settings')
 
     def test_save_success_closes_popup(self):
         save=self.open_dialog()

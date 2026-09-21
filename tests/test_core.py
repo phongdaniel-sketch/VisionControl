@@ -495,7 +495,12 @@ class CoreTests(unittest.TestCase):
                 app.processEvents()
                 self.assertIsNotNone(window.settings_window)
                 self.assertFalse(window.timer.isActive())
-                self.assertFalse(window.settings_window.voice_button.isEnabled())
+                self.assertTrue(window.settings_window.voice_button.isEnabled())
+                self.assertEqual(window.settings_window.voice_button.text().strip(), 'Voice')
+                sidebar = window.settings_window.voice_button.parentWidget().layout()
+                voice_index = sidebar.indexOf(window.settings_window.voice_button)
+                self.assertIs(sidebar.itemAt(voice_index - 1).widget(),
+                              window.settings_window.nav_buttons['Mouse'])
                 self.assertEqual(window.settings_window.camera.value(), DesktopSettings().camera_index)
                 self.assertEqual(
                     window.settings_window.monitor_mode.currentText(), "fixed")

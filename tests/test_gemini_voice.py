@@ -131,7 +131,7 @@ class GeminiServiceTests(test_voice.VoiceServiceTests):
         field=next(w for w in box.findChildren(QLineEdit) if w.echoMode()==QLineEdit.EchoMode.Password)
         field.setText('dummy-only-test-key')
         with patch('vision_control.voice_ui.voice_secret.save_key') as save:
-            next(w for w in box.findChildren(QPushButton) if w.text()=='Lưu').click()
+            next(w for w in box.findChildren(QPushButton) if w.text()=='Save voice settings').click()
             save.assert_called_once_with(self.service.secret_path,'dummy-only-test-key')
         self.assertNotIn('dummy-only-test-key',self.service.path.read_text())
 
