@@ -588,3 +588,17 @@ No confidence-only selection, stale landmark reuse or cross-label reassignment.
 frames in 114557 from 64 to 18; 114232 stayed at zero; 113409 fell 134 to 105.
 This measures role availability, not proven identity accuracy or OS cursor latency.
 Real-hand retest after restart is required. Personal settings were not changed.
+
+## Windows v1.0.0 release (2026-09-25)
+
+Current release behavior: Voice Copy, Paste and Close Window do not alter the
+current Start/Pause state. Lock Screen always pauses before locking and must be
+resumed explicitly after sign-in. The package and executable report v1.0.0;
+the Windows file version is 1.0.0.0.
+
+The release script builds the complete bundle, optionally signs it with a trusted
+certificate thumbprint, creates a ZIP and writes its SHA-256 sidecar. This machine
+has Windows signtool but no trusted code-signing certificate, so the v1.0.0 bundle
+is unsigned. Automated release verification passed with 431 tests plus compile,
+diff, EXE smoke, version and checksum checks. Physical Voice/Gesture/Lock testing
+is still required on the release machine.

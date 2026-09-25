@@ -17,4 +17,5 @@ models/
 *.log
 build/
 dist/
+release/
 *.dmg

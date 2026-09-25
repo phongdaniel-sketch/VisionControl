@@ -1,5 +1,14 @@
 # Development status
 
+## Voice close-command recognition (2026-09-25)
+
+- Added close-window phrases to the local Whisper decoding prompt and explicit
+  allowlisted variants for common Vietnamese recognition output such as `tắt áp`.
+- Canonical `Đóng cửa sổ` and `Tắt app` behavior is unchanged. Confidence,
+  foreground-target, modifier-release and single-action safety checks remain active.
+- No fuzzy command matching, background recording or diagnostic logging was enabled.
+- Physical BRIO acceptance remains required after rebuilding the Windows bundle.
+
 ## Gemini transcription and custom hotkeys (2026-09-21)
 
 - Added opt-in Gemini 2.5 Flash transcription, explicit audio-upload consent,
@@ -565,3 +574,20 @@ identity history. Click mappings and personal configuration are unchanged.
 64 -> 18, 114232 0 -> 0, 113409 134 -> 105. Remaining ambiguous candidates are
 intentionally blocked. These are role-selection results, not end-to-end latency
 or physical acceptance measurements. Restart and real-hand retest remain needed.
+
+## Windows v1.0.0 release (2026-09-25)
+
+Voice Copy, Paste and Close Window now preserve the existing gesture-control
+state. Lock Screen remains deliberately different: it pauses input before
+locking Windows and requires an explicit Start after sign-in. Close-command
+recognition also accepts the documented safe Vietnamese variants.
+
+Package, Python and Windows resource metadata are 1.0.0. The complete Windows
+one-directory bundle is packaged as `VisionControl-1.0.0-windows-x64.zip` with
+a SHA-256 sidecar. File Version is 1.0.0.0 and Product Version is 1.0.0.
+
+Validation: 431 automated tests, compileall, diff check, PowerShell parse check,
+packaged EXE smoke test, version-resource inspection and archive checksum check
+passed. No trusted code-signing certificate is installed on the build machine,
+so this bundle is unsigned and can trigger SmartScreen. Physical microphone,
+gesture, lock-screen and SmartScreen acceptance remain manual checks.

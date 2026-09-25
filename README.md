@@ -11,8 +11,8 @@ When resuming development in a new VS Code workspace, read
 branches for changes; build each platform's artifact on that platform.
 
 The deterministic controller core is implemented. Install dependencies from
-`requirements.txt` before running. The latest integration passes 146 tests on
-Windows; current macOS camera, input and packaging acceptance remains pending.
+`requirements.txt` before running. The current Windows integration passes 431
+automated tests; current macOS camera, input and packaging acceptance remains pending.
 See [macOS verification](docs/plans/macos-main-verification.md).
 
 ## Setup
@@ -104,8 +104,26 @@ python -m vision_control.launcher --camera-index 1 --start-paused
 
 The Controller shows tracking, gesture, monitor, mouse, and keyboard arming
 state. Press **Settings** to open the separate Settings window; opening Settings
-pauses control and releases held input. Voice remains visible but disabled until
-that feature is implemented.
+pauses control and releases held input.
+
+Voice Control is available under **Settings -> Voice**. It supports local Vietnamese
+speech recognition, optional Gemini transcription, selectable microphones, configurable
+hotkeys, spoken responses, timers, weather, date/time, Copy, Paste, Close Window, and
+Lock Screen. Supported Vietnamese phrases are listed on the Voice settings page.
+
+Copy, Paste, and Close Window preserve the existing gesture-control state: an active
+session stays active and a paused session stays paused. Lock Screen always pauses input
+before Windows is locked, and the user must press **Start** after signing in again.
+
+Voice commands include:
+
+- `Mở máy tính`, `Mấy giờ rồi`, `Hôm nay là ngày mấy`, `Hôm nay là thứ mấy`.
+- `Thời tiết hôm nay thế nào`, `Copy`, `Sao chép`, `Paste`, `Dán`, `Dạ`.
+- `Hẹn giờ 10 phút`, `Hủy hẹn giờ`, `Còn bao nhiêu phút`.
+- `Đóng cửa sổ`, `Tắt app`, `Khóa máy`, `Khóa màn hình`.
+
+Voice Debug is opt-in and never executes commands. Diagnostic logging and recording
+remain disabled by default.
 
 For diagnostics, Settings can still be opened directly with:
 
@@ -166,6 +184,21 @@ aspect ratio:
 Press `Esc` during startup to cancel safely.
 
 ## Standalone desktop build
+
+Build the complete Windows v1.0.0 ZIP and SHA-256 sidecar with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_release.ps1
+```
+
+The archive contains the entire one-directory PyInstaller bundle; do not distribute
+`VisionControl.exe` by itself. To Authenticode-sign the executable, install a trusted
+OV/EV code-signing certificate and set `VISIONCONTROL_SIGN_CERT_THUMBPRINT` before
+running the script. Without that certificate the script clearly reports an unsigned
+build, which can still trigger Windows SmartScreen. A self-signed certificate does not
+establish publisher reputation.
+
+See [Windows voice release](docs/windows-voice-release.md) for verification details.
 
 Install build dependencies and create the macOS application bundle:
 

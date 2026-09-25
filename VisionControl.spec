@@ -66,6 +66,7 @@ executable = EXE(
     argv_emulation=False,
     target_arch=None,
     codesign_identity=codesign_identity,
+    version="packaging/windows-version.txt" if sys.platform == 'win32' else None,
     entitlements_file="packaging/macos-entitlements.plist",
     icon="assets/VisionControl.ico" if sys.platform == 'win32' else "assets/VisionControl.icns",
 )
@@ -87,7 +88,7 @@ app = BUNDLE(
     bundle_identifier="com.visioncontrol.desktop",
     info_plist={
         "CFBundleDisplayName": "VisionControl",
-        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleShortVersionString": "1.0.0",
         "CFBundleVersion": "1",
         "NSCameraUsageDescription": "VisionControl uses the camera to detect hand gestures for local mouse and keyboard control.",
         "NSHighResolutionCapable": True,

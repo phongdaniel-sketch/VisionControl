@@ -42,7 +42,11 @@ def parse_command(text):
     text = normalize(text)
     commands = {
         'mo may tinh':'computer', 'mo this pc':'computer',
-        'dong cua so':'close_window', 'tat app':'close_window',
+        'dong cua so':'close_window', 'dong cua so nay':'close_window',
+        'dong cua so di':'close_window', 'dong cua so lai':'close_window',
+        'tat app':'close_window', 'tat ap':'close_window',
+        'tat ung dung':'close_window', 'tat ung dung nay':'close_window',
+        'dong app':'close_window', 'dong ung dung':'close_window',
         'khoa may':'lock_computer', 'khoa may tinh':'lock_computer',
         'khoa man hinh':'lock_computer',
         'may gio roi':'time', 'bay gio la may gio':'time',

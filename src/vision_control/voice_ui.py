@@ -439,26 +439,24 @@ class VoiceService(QObject):
             self.run('weather', lambda: safe_weather_report(
                 self.config.get('weather_location', 'Đà Nẵng'),
                 self.config.get('weather_auto_location', True)))
-        elif name in ('close_window', 'lock_computer'):
-            if modifiers_down() or (name=='close_window' and (not self.target or foreground()!=self.target)):
+        elif name=='close_window':
+            if modifiers_down() or not self.target or foreground()!=self.target:
                 raise ValueError('Đã hủy: cửa sổ đích thay đổi hoặc bạn chưa thả phím bổ trợ.')
+            self.window.runtime.adapter.close_window(self.target)
+            self.reply('Đã gửi yêu cầu đóng cửa sổ.')
+        elif name=='lock_computer':
+            if modifiers_down():
+                raise ValueError('Đã hủy: bạn chưa thả phím bổ trợ.')
             self.window.runtime.set_paused(True)
             self.window._update_pause_button()
             self.window._sync_tray()
-            if name=='close_window':
-                self.window.runtime.adapter.close_window(self.target)
-                self.reply('Đã gửi yêu cầu đóng cửa sổ.')
-            else:
-                self.window.runtime.adapter.lock_computer()
-                self.status('Đã gửi yêu cầu khóa máy. Điều khiển tay đã tạm dừng.')
+            self.window.runtime.adapter.lock_computer()
+            self.status('Đã gửi yêu cầu khóa máy. Điều khiển tay đã tạm dừng.')
         elif name in ('copy','paste'):
             if not self.target or foreground()!=self.target or modifiers_down():
                 raise ValueError('Đã hủy: cửa sổ đích thay đổi hoặc bạn chưa thả phím bổ trợ.')
-            self.window.runtime.set_paused(True)
-            self.window._update_pause_button()
-            self.window._sync_tray()
             self.window.runtime.adapter.perform('ctrl+c' if name=='copy' else 'ctrl+v')
-            self.reply('Đã gửi lệnh '+('sao chép' if name=='copy' else 'dán')+'. Điều khiển tay đã tạm dừng.')
+            self.reply('Đã gửi lệnh '+('sao chép' if name=='copy' else 'dán')+'.')
         elif name=='timer':
             self.countdown.start(command.seconds,time.time())
             self.update_countdown_display()

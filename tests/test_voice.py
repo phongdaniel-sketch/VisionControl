@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from vision_control.voice_commands import Command, Countdown, parse_command
 from vision_control.voice_ui import VoiceService
+from vision_control.voice_audio import INITIAL_PROMPT
 
 
 class VoiceCommandTests(unittest.TestCase):
@@ -29,6 +30,11 @@ class VoiceCommandTests(unittest.TestCase):
                      'Hẹn giờ 0 phút','Hẹn giờ 25 giờ','Hẹn giờ -5 phút','Hẹn giờ 1.5 phút',
                      'shutdown /s','Hẹn giờ một trăm phút','Tìm Google']:
             with self.subTest(text=text):self.assertIsNone(parse_command(text))
+
+    def test_local_prompt_covers_sensitive_voice_commands(self):
+        for phrase in ('Đóng cửa sổ', 'Tắt app', 'Tắt áp', 'Khóa máy'):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, INITIAL_PROMPT)
 
     def test_countdown_fires_once_after_sleep(self):
         timer=Countdown();timer.start(600,100)
@@ -94,12 +100,18 @@ class VoiceServiceTests(unittest.TestCase):
                 with self.assertRaises(ValueError):self.service.execute(Command('copy'))
         self.window.runtime.adapter.perform.assert_not_called()
 
-    def test_copy_pauses_gestures_and_uses_adapter(self):
+    def test_copy_and_paste_preserve_gesture_state_and_use_adapter(self):
         self.service.target=123
-        with patch('vision_control.voice_ui.foreground',return_value=123), patch('vision_control.voice_ui.modifiers_down',return_value=False):
-            self.service.execute(Command('copy'))
-        self.window.runtime.set_paused.assert_called_once_with(True)
-        self.window.runtime.adapter.perform.assert_called_once_with('ctrl+c')
+        for paused in (False,True):
+            for command,action in (('copy','ctrl+c'),('paste','ctrl+v')):
+                with self.subTest(paused=paused,command=command):
+                    self.window.runtime.paused=paused
+                    self.window.runtime.reset_mock()
+                    with patch('vision_control.voice_ui.foreground',return_value=123), patch('vision_control.voice_ui.modifiers_down',return_value=False):
+                        self.service.execute(Command(command))
+                    self.window.runtime.set_paused.assert_not_called()
+                    self.assertEqual(self.window.runtime.paused,paused)
+                    self.window.runtime.adapter.perform.assert_called_once_with(action)
 
     def test_speaking_blocks_microphone(self):
         self.service.state='speaking'
